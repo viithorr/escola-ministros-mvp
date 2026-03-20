@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Escola de Ministros
 
-## Getting Started
+Plataforma web de ensino para gestão de turmas, módulos, aulas em vídeo e acompanhamento do progresso dos alunos.
 
-First, run the development server:
+## Stack
+
+- Next.js
+- TypeScript
+- Tailwind CSS
+- Supabase
+- YouTube IFrame Player API
+
+## O que já está pronto
+
+- Cadastro, login e controle de perfil por papel (`admin` e `aluno`)
+- Entrada do aluno por código da turma
+- Onboarding inicial com dias e horário de estudo
+- Painel admin com:
+  - criação de turmas
+  - capa, categoria e código automático
+  - criação, edição e exclusão de módulos
+  - criação e edição de aulas
+  - bloqueio/liberação de aulas
+  - progresso dos alunos por turma
+- Área do aluno com:
+  - dashboard `Minhas Aulas`
+  - visualização de aulas liberadas
+  - player do YouTube embutido
+  - conclusão manual e automática da aula
+  - conta do aluno com foto de perfil e rotina de estudo
+
+## Fluxos principais
+
+### Admin
+
+- cria turma
+- organiza módulos
+- publica aulas por link do YouTube
+- acompanha progresso dos alunos
+
+### Aluno
+
+- cria conta
+- informa código da turma
+- configura rotina de estudo
+- acessa dashboard
+- assiste aulas e registra progresso
+
+## Rodando localmente
+
+Crie um arquivo `.env.local` com as variáveis do Supabase e execute:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Depois abra:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Observações
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Vídeos são carregados por URL do YouTube não listado.
+- Upload de avatar usa Supabase Storage.
+- Algumas telas de acompanhamento e refinamentos visuais ainda estão em evolução.
