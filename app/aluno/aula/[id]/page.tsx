@@ -125,7 +125,11 @@ export default function AulaAlunoPage() {
     if (loadingPage || !aulaId || !user) return;
 
     async function carregarTela() {
-      const userId = user.id;
+      const userId = user?.id;
+      if (!userId) {
+        return;
+      }
+
       const temCache =
         typeof window !== "undefined" && storageKey ? Boolean(window.sessionStorage.getItem(storageKey)) : false;
 
