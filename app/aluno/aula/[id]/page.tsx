@@ -125,6 +125,7 @@ export default function AulaAlunoPage() {
     if (loadingPage || !aulaId || !user) return;
 
     async function carregarTela() {
+      const userId = user.id;
       const temCache =
         typeof window !== "undefined" && storageKey ? Boolean(window.sessionStorage.getItem(storageKey)) : false;
 
@@ -136,7 +137,7 @@ export default function AulaAlunoPage() {
       try {
         const [{ aula, error: aulaError }, { progresso, error: progressoError }] = await Promise.all([
           withTimeout(getAulaComModuloTurma(aulaId)),
-          withTimeout(getProgressoDoAlunoNaAula(aulaId, user.id)),
+          withTimeout(getProgressoDoAlunoNaAula(aulaId, userId)),
         ]);
 
         if (aulaError || !aula || !aula.modulos?.turmas) {
@@ -151,7 +152,7 @@ export default function AulaAlunoPage() {
           return;
         }
 
-        const { matriculas, error: matriculaError } = await withTimeout(getMatriculasDoAluno(user.id));
+        const { matriculas, error: matriculaError } = await withTimeout(getMatriculasDoAluno(userId));
 
         if (matriculaError) {
           setMensagem("Nao conseguimos verificar sua turma agora. Tente novamente em alguns instantes.");
