@@ -76,6 +76,17 @@ function getIniciais(profile: UsuarioProfile | null) {
   return (profile?.email?.slice(0, 2) || "AL").toUpperCase();
 }
 
+type AlunoTurmaCodigoResponse = {
+  turmas:
+    | {
+        codigo_entrada: string | null;
+      }
+    | Array<{
+        codigo_entrada: string | null;
+      }>
+    | null;
+} | null;
+
 export default function ContaPage() {
   const { user, profile, profileError, loading, refreshProfile } = useAuth();
   const router = useRouter();
@@ -134,8 +145,12 @@ export default function ContaPage() {
           setTurmaNome(turma.nome);
         }
 
-        const { data } = await withTimeout(
-          supabase.from("alunos_turma").select("turmas(codigo_entrada)").eq("usuario_id", user.id).maybeSingle(),
+        const { data } = await withTimeout<{ data: AlunoTurmaCodigoResponse }>(
+          supabase
+            .from("alunos_turma")
+            .select("turmas(codigo_entrada)")
+            .eq("usuario_id", user.id)
+            .maybeSingle() as Promise<{ data: AlunoTurmaCodigoResponse }>,
         );
 
         const turmaRelacionada = Array.isArray(data?.turmas) ? data?.turmas[0] : data?.turmas;
