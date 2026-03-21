@@ -145,13 +145,10 @@ export default function ContaPage() {
           setTurmaNome(turma.nome);
         }
 
-        const { data } = await withTimeout<{ data: AlunoTurmaCodigoResponse }>(
-          supabase
-            .from("alunos_turma")
-            .select("turmas(codigo_entrada)")
-            .eq("usuario_id", user.id)
-            .maybeSingle() as Promise<{ data: AlunoTurmaCodigoResponse }>,
+        const respostaCodigoTurma = await withTimeout(
+          supabase.from("alunos_turma").select("turmas(codigo_entrada)").eq("usuario_id", user.id).maybeSingle(),
         );
+        const data = (respostaCodigoTurma as unknown as { data: AlunoTurmaCodigoResponse }).data;
 
         const turmaRelacionada = Array.isArray(data?.turmas) ? data?.turmas[0] : data?.turmas;
         setCodigoTurma(turmaRelacionada?.codigo_entrada ?? "");
