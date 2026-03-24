@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { isValidUserRole } from "@/lib/usuarios";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 
-export default function EntrarTurma() {
+function EntrarTurmaContent() {
   const { user, profile, profileError, loading: authLoading } = useAuth();
   const [codigo, setCodigo] = useState("");
   const [mensagem, setMensagem] = useState("");
@@ -211,5 +211,13 @@ export default function EntrarTurma() {
         {mensagem ? <p className="text-sm text-center text-red-600">{mensagem}</p> : null}
       </div>
     </main>
+  );
+}
+
+export default function EntrarTurmaPage() {
+  return (
+    <Suspense fallback={<div>Carregando...</div>}>
+      <EntrarTurmaContent />
+    </Suspense>
   );
 }
