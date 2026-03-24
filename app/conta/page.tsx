@@ -146,7 +146,9 @@ export default function ContaPage() {
         }
 
         const respostaCodigoTurma = await withTimeout(
-          supabase.from("alunos_turma").select("turmas(codigo_entrada)").eq("usuario_id", user.id).maybeSingle(),
+          Promise.resolve(
+            supabase.from("alunos_turma").select("turmas(codigo_entrada)").eq("usuario_id", user.id).maybeSingle(),
+          ),
         );
         const data = (respostaCodigoTurma as unknown as { data: AlunoTurmaCodigoResponse }).data;
 
