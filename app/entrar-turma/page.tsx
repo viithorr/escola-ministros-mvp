@@ -146,13 +146,18 @@ export default function EntrarTurma() {
         return;
       }
 
-      const { error: erroInsert } = await withTimeout(
-        supabase.from("alunos_turma").insert({
-          usuario_id: user.id,
-          turma_id: turma.id,
-          data_entrada: new Date().toISOString(),
-        }),
+      const respostaInsert = await withTimeout(
+        Promise.resolve(
+          supabase.from("alunos_turma").insert({
+            usuario_id: user.id,
+            turma_id: turma.id,
+            data_entrada: new Date().toISOString(),
+          }),
+        ),
       );
+      const { error: erroInsert } = respostaInsert as unknown as {
+        error: unknown;
+      };
 
       if (erroInsert) {
         setMensagem("Nao foi possivel entrar na turma agora. Tente novamente.");
