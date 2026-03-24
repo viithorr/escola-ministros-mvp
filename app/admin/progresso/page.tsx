@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,7 +36,7 @@ function getIniciaisAluno(aluno: AlunoProgressoTurma) {
   return (aluno.email.slice(0, 2) || "AL").toUpperCase();
 }
 
-export default function AdminProgressoPage() {
+function AdminProgressoPageContent() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -342,5 +342,13 @@ export default function AdminProgressoPage() {
         </div>
       </nav>
     </main>
+  );
+}
+
+export default function AdminProgressoPage() {
+  return (
+    <Suspense fallback={<div>Carregando progresso...</div>}>
+      <AdminProgressoPageContent />
+    </Suspense>
   );
 }
