@@ -98,13 +98,19 @@ export default function EntrarTurma() {
     }
 
     try {
-      const { data: turma, error } = await withTimeout(
-        supabase
-          .from("turmas")
-          .select("*")
-          .eq("codigo_entrada", codigo.trim().toUpperCase())
-          .single(),
+      const respostaTurma = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from("turmas")
+            .select("*")
+            .eq("codigo_entrada", codigo.trim().toUpperCase())
+            .single(),
+        ),
       );
+      const { data: turma, error } = respostaTurma as unknown as {
+        data: { id: string } | null;
+        error: unknown;
+      };
 
       if (error || !turma) {
         setMensagem("Codigo invalido. Confira e tente novamente.");
