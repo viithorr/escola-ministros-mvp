@@ -98,19 +98,13 @@ export default function EntrarTurma() {
     }
 
     try {
-      const respostaTurma = await withTimeout(
-        Promise.resolve(
-          supabase
-            .from("turmas")
-            .select("*")
-            .eq("codigo_entrada", codigo.trim().toUpperCase())
-            .single(),
-        ),
+      const { data: turma, error } = await withTimeout(
+        supabase
+          .from("turmas")
+          .select("*")
+          .eq("codigo_entrada", codigo.trim().toUpperCase())
+          .single(),
       );
-      const { data: turma, error } = respostaTurma as unknown as {
-        data: { id: string } | null;
-        error: unknown;
-      };
 
       if (error || !turma) {
         setMensagem("Codigo invalido. Confira e tente novamente.");
@@ -146,18 +140,13 @@ export default function EntrarTurma() {
         return;
       }
 
-      const respostaInsert = await withTimeout(
-        Promise.resolve(
-          supabase.from("alunos_turma").insert({
-            usuario_id: user.id,
-            turma_id: turma.id,
-            data_entrada: new Date().toISOString(),
-          }),
-        ),
+      const { error: erroInsert } = await withTimeout(
+        supabase.from("alunos_turma").insert({
+          usuario_id: user.id,
+          turma_id: turma.id,
+          data_entrada: new Date().toISOString(),
+        }),
       );
-      const { error: erroInsert } = respostaInsert as unknown as {
-        error: unknown;
-      };
 
       if (erroInsert) {
         setMensagem("Nao foi possivel entrar na turma agora. Tente novamente.");

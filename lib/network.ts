@@ -7,13 +7,22 @@ export class RequestTimeoutError extends Error {
   }
 }
 
-export function withTimeout<T>(promise: Promise<T>, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  return Promise.race<T>([
-    promise,
-    new Promise<T>((_, reject) => {
-      window.setTimeout(() => reject(new RequestTimeoutError()), timeoutMs);
-    }),
-  ]);
+export function withTimeout<T>(promise: PromiseLike<T>, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new RequestTimeoutError());
+    }, timeoutMs);
+
+    Promise.resolve(promise)
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 export function getServiceUnavailableMessage() {
