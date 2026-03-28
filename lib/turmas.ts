@@ -104,3 +104,22 @@ export async function atualizarNomeTurma(turmaId: string, nome: string) {
 
   return { turma: data, error };
 }
+
+export async function atualizarCapaTurma(turmaId: string, file: File) {
+  const { capaUrl, error: uploadError } = await uploadCapaTurma(file);
+
+  if (uploadError || !capaUrl) {
+    return { turma: null, error: uploadError ?? new Error("Nao foi possivel enviar a capa.") };
+  }
+
+  const { data, error } = await supabase
+    .from("turmas")
+    .update({
+      capa_url: capaUrl,
+    })
+    .eq("id", turmaId)
+    .select("id, nome, categoria, capa_url, codigo_entrada, arquivada, arquivada_em, created_at")
+    .single<TurmaAdmin>();
+
+  return { turma: data, error };
+}

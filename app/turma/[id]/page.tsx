@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarDays,
@@ -16,6 +16,7 @@ import {
   Clock3,
   Trash2,
   UserRound,
+  ImagePlus,
 } from "lucide-react";
 import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,7 +31,7 @@ import {
 } from "@/lib/modulos";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { supabase } from "@/lib/supabase";
-import { atualizarNomeTurma, getTurmaById, TurmaAdmin } from "@/lib/turmas";
+import { atualizarCapaTurma, atualizarNomeTurma, getTurmaById, TurmaAdmin } from "@/lib/turmas";
 import { isValidUserRole, UsuarioProfile } from "@/lib/usuarios";
 
 function getIniciais(profile: UsuarioProfile | null) {
@@ -74,6 +75,8 @@ export default function TurmaPage() {
   const [acaoTurma, setAcaoTurma] = useState<"arquivar" | "excluir" | null>(null);
   const [senhaConfirmacao, setSenhaConfirmacao] = useState("");
   const [executandoAcaoTurma, setExecutandoAcaoTurma] = useState(false);
+  const [salvandoCapa, setSalvandoCapa] = useState(false);
+  const inputCapaRef = useRef<HTMLInputElement | null>(null);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
 
@@ -273,6 +276,27 @@ export default function TurmaPage() {
     setSalvandoTurma(false);
   }
 
+  async function handleTrocarCapa(event: ChangeEvent<HTMLInputElement>) {
+    if (!turma || !event.target.files?.[0]) return;
+
+    const file = event.target.files[0];
+    setSalvandoCapa(true);
+    setMensagem("");
+
+    const { turma: turmaAtualizada, error } = await atualizarCapaTurma(turma.id, file);
+
+    if (error || !turmaAtualizada) {
+      setMensagem("Nao foi possivel atualizar a capa da turma agora. Tente novamente.");
+      setSalvandoCapa(false);
+      event.target.value = "";
+      return;
+    }
+
+    setTurma(turmaAtualizada);
+    setSalvandoCapa(false);
+    event.target.value = "";
+  }
+
   async function validarSenhaAdmin() {
     if (!profile?.email || !senhaConfirmacao.trim()) {
       setMensagem("Digite a senha do administrador para continuar.");
@@ -432,6 +456,24 @@ export default function TurmaPage() {
                       Sem capa
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => inputCapaRef.current?.click()}
+                    disabled={salvandoCapa}
+                    className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-black/75 px-3 py-2 text-xs font-medium text-white backdrop-blur-sm disabled:opacity-60"
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                    {salvandoCapa ? "Salvando..." : "Trocar capa"}
+                  </button>
+
+                  <input
+                    ref={inputCapaRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleTrocarCapa}
+                  />
                 </div>
               </article>
 
