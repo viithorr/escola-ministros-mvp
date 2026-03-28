@@ -164,8 +164,10 @@ export default function AulaAlunoPage() {
   useEffect(() => {
     if (loadingPage || !aulaId || !user) return;
 
+    const userAtual = user;
+
     async function carregarTela() {
-      const userId = user.id;
+      const userId = userAtual.id;
       const temCache =
         typeof window !== "undefined" && storageKey ? Boolean(window.sessionStorage.getItem(storageKey)) : false;
 
