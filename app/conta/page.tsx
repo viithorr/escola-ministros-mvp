@@ -5,6 +5,8 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Cropper, { type Area } from "react-easy-crop";
 import { CalendarDays, ChartPie, CircleUserRound, House, LogOut, Pencil } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
+import NotificationBell from "@/components/NotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 import { getTurmaDoAluno } from "@/lib/aluno-dashboard";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
@@ -329,12 +331,13 @@ export default function ContaPage() {
   }
 
   if (loading || checkingAccess) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
     <main className="min-h-screen bg-white pb-28 pt-10">
-      <header className="mx-auto flex max-w-md items-center justify-center px-6">
+      <header className="mx-auto flex max-w-md items-center justify-between px-6">
+        <div className="w-[94px]" />
         <Image
           src="/img/logo.svg"
           alt="Escola de Ministros"
@@ -343,6 +346,9 @@ export default function ContaPage() {
           className="h-10 w-auto object-contain"
           priority
         />
+        <div className="flex w-[94px] items-center justify-end">
+          <NotificationBell userId={user?.id} />
+        </div>
       </header>
 
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 px-6 pt-8">
@@ -501,12 +507,12 @@ export default function ContaPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/encontros")} className="flex flex-col items-center gap-1 text-slate-400">
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/progresso")} className="flex flex-col items-center gap-1 text-slate-400">
             <ChartPie className="h-7 w-7 stroke-[1.8]" />
             <span className="text-[10px] font-medium">Progresso</span>
           </button>

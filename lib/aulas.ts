@@ -10,6 +10,11 @@ export type AulaModulo = {
   duracao_texto: string | null;
   ordem: number | null;
   bloqueado: boolean;
+  data_publicacao: string | null;
+  data_fechamento: string | null;
+  publicado: boolean;
+  publicado_em: string | null;
+  conta_no_progresso: boolean;
   created_at: string;
 };
 
@@ -34,10 +39,31 @@ export type AulaComModuloTurma = AulaModulo & {
       categoria: "instrumental" | "vocal" | null;
       capa_url: string | null;
       codigo_entrada: string;
+      arquivada: boolean;
+      arquivada_em: string | null;
       created_at: string;
     } | null;
   } | null;
 };
+
+export function aulaEstaDisponivelParaAluno(
+  aula: Pick<AulaModulo, "publicado" | "data_publicacao" | "data_fechamento">,
+  now = new Date(),
+) {
+  const timestampAtual = now.getTime();
+  const publicada =
+    aula.publicado || (aula.data_publicacao ? new Date(aula.data_publicacao).getTime() <= timestampAtual : false);
+
+  if (!publicada) {
+    return false;
+  }
+
+  if (!aula.data_fechamento) {
+    return true;
+  }
+
+  return new Date(aula.data_fechamento).getTime() >= timestampAtual;
+}
 
 function getExtensao(file: File, fallback: string) {
   return file.name.split(".").pop()?.toLowerCase() || fallback;
@@ -109,6 +135,13 @@ export async function criarAula(
   titulo: string,
   videoUrl?: string | null,
   duracaoTexto?: string | null,
+  publicacao?: {
+    data_publicacao?: string | null;
+    data_fechamento?: string | null;
+    publicado?: boolean;
+    publicado_em?: string | null;
+    conta_no_progresso?: boolean;
+  },
 ) {
   const { data: ultimaAula, error: ordemError } = await supabase
     .from("aulas")
@@ -133,8 +166,15 @@ export async function criarAula(
       duracao_texto: duracaoTexto ?? null,
       ordem: proximaOrdem,
       bloqueado: false,
+      data_publicacao: publicacao?.data_publicacao ?? null,
+      data_fechamento: publicacao?.data_fechamento ?? null,
+      publicado: publicacao?.publicado ?? true,
+      publicado_em: publicacao?.publicado_em ?? null,
+      conta_no_progresso: publicacao?.conta_no_progresso ?? true,
     })
-    .select("id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, created_at")
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .single<AulaModulo>();
 
   return { aula: data, error };
@@ -143,7 +183,9 @@ export async function criarAula(
 export async function getAulaById(aulaId: string) {
   const { data, error } = await supabase
     .from("aulas")
-    .select("id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, created_at")
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .eq("id", aulaId)
     .maybeSingle<AulaModulo>();
 
@@ -164,6 +206,11 @@ export async function getAulaComModuloTurma(aulaId: string) {
       duracao_texto,
       ordem,
       bloqueado,
+      data_publicacao,
+      data_fechamento,
+      publicado,
+      publicado_em,
+      conta_no_progresso,
       created_at,
       modulos (
         id,
@@ -177,6 +224,8 @@ export async function getAulaComModuloTurma(aulaId: string) {
           categoria,
           capa_url,
           codigo_entrada,
+          arquivada,
+          arquivada_em,
           created_at
         )
       )
@@ -194,6 +243,11 @@ export async function atualizarAula(
     titulo: string;
     video_url?: string | null;
     duracao_texto?: string | null;
+    data_publicacao?: string | null;
+    data_fechamento?: string | null;
+    publicado?: boolean;
+    publicado_em?: string | null;
+    conta_no_progresso?: boolean;
   },
 ) {
   const { data, error } = await supabase
@@ -202,9 +256,16 @@ export async function atualizarAula(
       titulo: payload.titulo.trim(),
       video_url: payload.video_url ?? null,
       duracao_texto: payload.duracao_texto ?? null,
+      data_publicacao: payload.data_publicacao ?? null,
+      data_fechamento: payload.data_fechamento ?? null,
+      publicado: payload.publicado ?? true,
+      publicado_em: payload.publicado_em ?? null,
+      conta_no_progresso: payload.conta_no_progresso ?? true,
     })
     .eq("id", aulaId)
-    .select("id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, created_at")
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .single<AulaModulo>();
 
   return { aula: data, error };
@@ -215,7 +276,9 @@ export async function alternarBloqueioAula(aulaId: string, bloqueado: boolean) {
     .from("aulas")
     .update({ bloqueado })
     .eq("id", aulaId)
-    .select("id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, created_at")
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .single<AulaModulo>();
 
   return { aula: data, error };
@@ -285,7 +348,9 @@ export async function listarAulasDosModulos(moduloIds: string[]) {
 
   const { data, error } = await supabase
     .from("aulas")
-    .select("id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, created_at")
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .in("modulo_id", moduloIds)
     .order("ordem", { ascending: true })
     .order("created_at", { ascending: true });

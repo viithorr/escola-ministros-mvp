@@ -14,12 +14,18 @@ import {
   House,
   Link as LinkIcon,
   Lock,
+  MessageSquare,
   Pencil,
   PlaySquare,
   Trash2,
 } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
+import MobileDatePickerModal from "@/components/MobileDatePickerModal";
+import MobileTimePickerModal from "@/components/MobileTimePickerModal";
+import { notificarTurma } from "@/lib/admin-notificacoes";
 import { useAuth } from "@/contexts/AuthContext";
 import { YouTubePlayer } from "@/components/YouTubePlayer";
+import { contarComentariosDaAula } from "@/lib/comentarios";
 import {
   alternarBloqueioAula,
   AulaModulo,
@@ -44,6 +50,9 @@ type MaterialRascunho = {
   arquivo_url: string;
   tipo: "arquivo" | "link";
 };
+
+type ModoPublicacao = "agora" | "agendada";
+type ModoPrazo = "automatico" | "manual";
 
 function extrairYouTubeEmbedUrl(url: string) {
   try {
@@ -87,6 +96,99 @@ function formatarDuracaoLivre(valor: string) {
   return `${numeros.slice(0, 2)}:${numeros.slice(2)}`;
 }
 
+function formatarDataParaInput(dataIso: string | null) {
+  if (!dataIso) return "";
+
+  const data = new Date(dataIso);
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, "0");
+  const dia = String(data.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function formatDateObjectToInput(data: Date) {
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, "0");
+  const dia = String(data.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function formatarHoraParaInput(dataIso: string | null) {
+  if (!dataIso) return "";
+
+  const data = new Date(dataIso);
+  const hora = String(data.getHours()).padStart(2, "0");
+  const minuto = String(data.getMinutes()).padStart(2, "0");
+  return `${hora}:${minuto}`;
+}
+
+function combinarDataHora(data: string, hora: string) {
+  return `${data}T${hora}:00`;
+}
+
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatarDataLabel(value: string) {
+  if (!value) return "Selecionar data";
+  return parseDateInput(value).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getFimDaSemana(dataBase: string) {
+  const data = new Date(dataBase);
+  const dia = data.getDay();
+  const diasAteSabado = dia === 6 ? 0 : 6 - dia;
+  const fim = new Date(data);
+  fim.setDate(data.getDate() + diasAteSabado);
+  fim.setHours(23, 59, 59, 999);
+  return fim.toISOString();
+}
+
+function getMaximoPrazo(dataBase: string) {
+  const data = new Date(dataBase);
+  const maximo = new Date(data);
+  maximo.setDate(data.getDate() + 7);
+  return maximo.toISOString();
+}
+
+function formatarResumoPublicacao(aula: AulaModulo | null) {
+  if (!aula) return null;
+
+  if (aula.publicado) {
+    if (aula.publicado_em) {
+      return `Publicada em ${new Date(aula.publicado_em).toLocaleString("pt-BR")}`;
+    }
+
+    return "Publicada imediatamente";
+  }
+
+  if (aula.data_publicacao) {
+    return `Agendada para ${new Date(aula.data_publicacao).toLocaleString("pt-BR")}`;
+  }
+
+  return "Publicacao pendente";
+}
+
+function formatarResumoPrazo(aula: AulaModulo | null) {
+  if (!aula) return null;
+
+  if (!aula.conta_no_progresso) {
+    return "Aula de revisao: nao entra no progresso semanal.";
+  }
+
+  if (!aula.data_fechamento) {
+    return "Sem prazo de fechamento definido.";
+  }
+
+  return `Conta no progresso ate ${new Date(aula.data_fechamento).toLocaleString("pt-BR")}`;
+}
+
 function getIniciais(profile: UsuarioProfile | null) {
   const nome = profile?.nome?.trim();
 
@@ -127,8 +229,17 @@ export default function NovaAulaPage() {
   const [excluindoAula, setExcluindoAula] = useState(false);
   const [aulaAtual, setAulaAtual] = useState<AulaModulo | null>(null);
   const [salvandoDisponibilidade, setSalvandoDisponibilidade] = useState(false);
+  const [modoPublicacao, setModoPublicacao] = useState<ModoPublicacao>("agora");
+  const [dataPublicacao, setDataPublicacao] = useState("");
+  const [horaPublicacao, setHoraPublicacao] = useState("");
+  const [contaNoProgresso, setContaNoProgresso] = useState(true);
+  const [modoPrazo, setModoPrazo] = useState<ModoPrazo>("automatico");
+  const [dataFechamento, setDataFechamento] = useState("");
+  const [horaFechamento, setHoraFechamento] = useState("");
+  const [pickerAberto, setPickerAberto] = useState<null | "data-publicacao" | "hora-publicacao" | "data-fechamento" | "hora-fechamento">(null);
   const [statusPlayer, setStatusPlayer] = useState<"idle" | "playing" | "paused" | "ended">("idle");
   const [progressoPlayer, setProgressoPlayer] = useState<{ currentTime: number; duration: number } | null>(null);
+  const [comentariosCount, setComentariosCount] = useState(0);
   const inputMaterialRef = useRef<HTMLInputElement | null>(null);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
@@ -213,6 +324,13 @@ export default function NovaAulaPage() {
           setDuracaoTexto(aula.duracao_texto ?? "");
           setVideoUrl(aula.video_url ?? "");
           setAulaAtual(aula);
+          setModoPublicacao(aula.publicado ? "agora" : "agendada");
+          setDataPublicacao(formatarDataParaInput(aula.data_publicacao));
+          setHoraPublicacao(formatarHoraParaInput(aula.data_publicacao));
+          setContaNoProgresso(aula.conta_no_progresso);
+          setModoPrazo(aula.data_fechamento ? "manual" : "automatico");
+          setDataFechamento(formatarDataParaInput(aula.data_fechamento));
+          setHoraFechamento(formatarHoraParaInput(aula.data_fechamento));
           setMateriais(
             materiaisExistentes.map((material: MaterialAula) => ({
               id: material.id,
@@ -221,9 +339,11 @@ export default function NovaAulaPage() {
               tipo:
                 material.arquivo_url.startsWith("http") && !material.arquivo_url.endsWith(".pdf")
                   ? "link"
-                  : "arquivo",
+              : "arquivo",
             })),
           );
+          const { total } = await contarComentariosDaAula(aula.id);
+          setComentariosCount(total);
         }
 
         setModulo({
@@ -336,14 +456,95 @@ export default function NovaAulaPage() {
     setPublicandoAula(true);
     setMensagem("");
     const duracaoFinal = duracaoTexto.trim() || null;
+    const dataHoraAgendada =
+      modoPublicacao === "agendada" && dataPublicacao && horaPublicacao
+        ? combinarDataHora(dataPublicacao, horaPublicacao)
+        : null;
+    const dataBasePublicacao =
+      modoPublicacao === "agendada" ? dataHoraAgendada : new Date().toISOString();
+
+    if (modoPublicacao === "agendada" && (!dataPublicacao || !horaPublicacao || !dataHoraAgendada)) {
+      setMensagem("Escolha a data e a hora para agendar a publicacao da aula.");
+      setPublicandoAula(false);
+      return;
+    }
+
+    if (dataHoraAgendada && new Date(dataHoraAgendada).getTime() <= Date.now()) {
+      setMensagem("Escolha uma data e hora futuras para agendar a publicacao da aula.");
+      setPublicandoAula(false);
+      return;
+    }
+
+    const dataHoraFechamentoManual =
+      contaNoProgresso && modoPrazo === "manual" && dataFechamento && horaFechamento
+        ? combinarDataHora(dataFechamento, horaFechamento)
+        : null;
+
+    if (contaNoProgresso && modoPrazo === "manual" && (!dataFechamento || !horaFechamento || !dataHoraFechamentoManual)) {
+      setMensagem("Escolha a data e a hora de fechamento da aula.");
+      setPublicandoAula(false);
+      return;
+    }
+
+    if (contaNoProgresso && dataBasePublicacao) {
+      const prazoAutomatico = getFimDaSemana(dataBasePublicacao);
+      const prazoMaximo = getMaximoPrazo(dataBasePublicacao);
+      const dataFinal = modoPrazo === "manual" ? dataHoraFechamentoManual : prazoAutomatico;
+
+      if (!dataFinal) {
+        setMensagem("Nao foi possivel definir o prazo final desta aula.");
+        setPublicandoAula(false);
+        return;
+      }
+
+      if (new Date(dataFinal).getTime() <= new Date(dataBasePublicacao).getTime()) {
+        setMensagem("O prazo final precisa ser depois da data de publicacao da aula.");
+        setPublicandoAula(false);
+        return;
+      }
+
+      if (new Date(dataFinal).getTime() > new Date(prazoMaximo).getTime()) {
+        setMensagem("O prazo final nao pode ultrapassar 7 dias apos a publicacao da aula.");
+        setPublicandoAula(false);
+        return;
+      }
+    }
+
+    const dataFechamentoFinal =
+      !contaNoProgresso || !dataBasePublicacao
+        ? null
+        : modoPrazo === "manual"
+          ? dataHoraFechamentoManual
+          : getFimDaSemana(dataBasePublicacao);
+
+    const publicacaoPayload =
+      modoPublicacao === "agendada"
+        ? {
+            data_publicacao: dataHoraAgendada,
+            data_fechamento: dataFechamentoFinal,
+            publicado: false,
+            publicado_em: null,
+            conta_no_progresso: contaNoProgresso,
+          }
+        : {
+            data_publicacao: null,
+            data_fechamento: dataFechamentoFinal,
+            publicado: true,
+            publicado_em: new Date().toISOString(),
+            conta_no_progresso: contaNoProgresso,
+          };
+
+    const deveNotificarNovaAula =
+      publicacaoPayload.publicado === true && (!modoEdicao || !aulaAtual?.publicado);
 
     const { aula, error } = modoEdicao && aulaId
       ? await atualizarAula(aulaId, {
           titulo: tituloAula,
           video_url: videoUrl.trim(),
           duracao_texto: duracaoFinal,
+          ...publicacaoPayload,
         })
-      : await criarAula(moduloId, tituloAula, videoUrl.trim(), duracaoFinal);
+      : await criarAula(moduloId, tituloAula, videoUrl.trim(), duracaoFinal, publicacaoPayload);
 
     if (error || !aula) {
       setMensagem("Nao foi possivel publicar a aula agora. Tente novamente.");
@@ -373,6 +574,17 @@ export default function NovaAulaPage() {
       setMensagem("A aula foi criada, mas os materiais nao puderam ser salvos.");
       setPublicandoAula(false);
       return;
+    }
+
+    if (deveNotificarNovaAula && modulo?.turma_id) {
+      await notificarTurma({
+        turmaId: modulo.turma_id,
+        tipo: "nova_aula",
+        titulo: "Nova aula disponivel",
+        mensagem: `Nova aula disponivel: ${aula.titulo}`,
+        acao_tipo: "abrir_aula",
+        acao_payload: { aula_id: aula.id },
+      });
     }
 
     if (modulo?.turma_id) {
@@ -421,7 +633,7 @@ export default function NovaAulaPage() {
   }
 
   if (loading || loadingPage) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
@@ -459,9 +671,7 @@ export default function NovaAulaPage() {
           ) : null}
 
           {carregandoDados ? (
-            <div className="rounded-[18px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-              Carregando modulo...
-            </div>
+            <AppLoader fullScreen={false} />
           ) : null}
 
           {!carregandoDados && modulo && turma ? (
@@ -558,6 +768,172 @@ export default function NovaAulaPage() {
                     <ExternalLink className="h-4 w-4" />
                     Abrir link informado
                   </a>
+                ) : null}
+              </div>
+
+              <div className="space-y-3 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-slate-800">Publicacao da Aula</span>
+                  <p className="text-xs text-slate-500">
+                    Escolha se a aula deve sair agora ou em uma data e horario especificos.
+                  </p>
+                  {modoEdicao && aulaAtual ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-slate-600">{formatarResumoPublicacao(aulaAtual)}</p>
+                      <p className="text-xs font-medium text-slate-500">{formatarResumoPrazo(aulaAtual)}</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setModoPublicacao("agora")}
+                    className={`rounded-[12px] border px-4 py-3 text-sm font-medium transition ${
+                      modoPublicacao === "agora"
+                        ? "border-[#0e5d77] bg-[#0e5d77] text-white"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    Publicar agora
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModoPublicacao("agendada")}
+                    className={`rounded-[12px] border px-4 py-3 text-sm font-medium transition ${
+                      modoPublicacao === "agendada"
+                        ? "border-[#0e5d77] bg-[#0e5d77] text-white"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    Agendar publicacao
+                  </button>
+                </div>
+
+                {modoPublicacao === "agendada" ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block space-y-2">
+                      <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
+                        Data
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPickerAberto("data-publicacao")}
+                        className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none"
+                      >
+                        {formatarDataLabel(dataPublicacao)}
+                      </button>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
+                        Hora
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPickerAberto("hora-publicacao")}
+                        className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none"
+                      >
+                        {horaPublicacao || "Selecionar hora"}
+                      </button>
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-3 rounded-[18px] border border-slate-200 bg-white px-4 py-4">
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-slate-800">Participacao no Progresso</span>
+                  <p className="text-xs text-slate-500">
+                    Aulas da semana contam no progresso. Aulas de revisao ficam disponiveis sem pesar na meta semanal.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-[12px] border border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">Conta no progresso semanal</p>
+                    <p className="text-xs text-slate-500">
+                      Desligue para liberar a aula como revisao, sem prazo e sem entrar no progresso.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setContaNoProgresso((atual) => !atual)}
+                    className={`flex h-7 w-12 items-center rounded-full p-1 transition ${
+                      contaNoProgresso ? "bg-[#0e5d77]" : "bg-slate-300"
+                    }`}
+                    aria-label="Alternar participacao no progresso"
+                  >
+                    <span
+                      className={`h-5 w-5 rounded-full bg-white transition ${contaNoProgresso ? "translate-x-5" : ""}`}
+                    />
+                  </button>
+                </div>
+
+                {contaNoProgresso ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setModoPrazo("automatico")}
+                        className={`rounded-[12px] border px-4 py-3 text-sm font-medium transition ${
+                          modoPrazo === "automatico"
+                            ? "border-[#0e5d77] bg-[#0e5d77] text-white"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        Ate o fim da semana
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setModoPrazo("manual")}
+                        className={`rounded-[12px] border px-4 py-3 text-sm font-medium transition ${
+                          modoPrazo === "manual"
+                            ? "border-[#0e5d77] bg-[#0e5d77] text-white"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        Definir prazo manual
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-slate-500">
+                      O prazo manual nao pode ultrapassar 7 dias apos a publicacao da aula.
+                    </p>
+
+                    {modoPrazo === "manual" ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="block space-y-2">
+                          <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
+                            Data limite
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPickerAberto("data-fechamento")}
+                            className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none"
+                          >
+                            {formatarDataLabel(dataFechamento)}
+                          </button>
+                        </label>
+
+                        <label className="block space-y-2">
+                          <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
+                            Hora limite
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPickerAberto("hora-fechamento")}
+                            className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-left text-sm outline-none"
+                          >
+                            {horaFechamento || "Selecionar hora"}
+                          </button>
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
 
@@ -692,6 +1068,21 @@ export default function NovaAulaPage() {
                 </button>
               ) : null}
 
+              {modoEdicao && aulaId ? (
+                <button
+                  type="button"
+                  disabled={comentariosCount === 0}
+                  onClick={() => router.push(`/admin/comentarios/aula/${aulaId}?modulo=${moduloId}`)}
+                  className={`mx-auto flex items-center gap-2 text-sm font-medium ${
+                    comentariosCount === 0 ? "text-slate-300" : "text-[#0e5d77]"
+                  }`}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Ver Comentarios
+                  {comentariosCount > 0 ? ` (${comentariosCount})` : ""}
+                </button>
+              ) : null}
+
               <p className="text-xs text-[#d8d8d8]">
                 Modulo: {modulo.titulo} | Turma: {turma.nome} | Tipo selecionado: {tipoAula}
               </p>
@@ -719,9 +1110,12 @@ export default function NovaAulaPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button
+            onClick={() => router.push(modulo?.turma_id ? `/admin/encontros?turma=${modulo.turma_id}` : "/admin/encontros")}
+            className="flex flex-col items-center gap-1 text-slate-400"
+          >
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
           <button
@@ -774,6 +1168,38 @@ export default function NovaAulaPage() {
           </div>
         </div>
       ) : null}
+
+      <MobileDatePickerModal
+        open={pickerAberto === "data-publicacao"}
+        value={dataPublicacao ? parseDateInput(dataPublicacao) : new Date()}
+        minDate={new Date()}
+        onClose={() => setPickerAberto(null)}
+        onConfirm={(value) => setDataPublicacao(formatDateObjectToInput(value))}
+      />
+
+      <MobileTimePickerModal
+        open={pickerAberto === "hora-publicacao"}
+        hour={horaPublicacao.slice(0, 2) || "21"}
+        minute={horaPublicacao.slice(3, 5) || "00"}
+        onClose={() => setPickerAberto(null)}
+        onConfirm={(hour, minute) => setHoraPublicacao(`${hour}:${minute}`)}
+      />
+
+      <MobileDatePickerModal
+        open={pickerAberto === "data-fechamento"}
+        value={dataFechamento ? parseDateInput(dataFechamento) : (dataPublicacao ? parseDateInput(dataPublicacao) : new Date())}
+        minDate={dataPublicacao ? parseDateInput(dataPublicacao) : new Date()}
+        onClose={() => setPickerAberto(null)}
+        onConfirm={(value) => setDataFechamento(formatDateObjectToInput(value))}
+      />
+
+      <MobileTimePickerModal
+        open={pickerAberto === "hora-fechamento"}
+        hour={horaFechamento.slice(0, 2) || "21"}
+        minute={horaFechamento.slice(3, 5) || "00"}
+        onClose={() => setPickerAberto(null)}
+        onConfirm={(hour, minute) => setHoraFechamento(`${hour}:${minute}`)}
+      />
     </main>
   );
 }

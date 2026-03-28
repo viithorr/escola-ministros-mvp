@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { supabase } from "@/lib/supabase";
@@ -59,6 +60,11 @@ function EntrarTurmaContent() {
         }
 
         if (matriculas[0]?.turma_id) {
+          if (matriculas[0].acesso_bloqueado) {
+            router.push("/dashboard");
+            return;
+          }
+
           if (profile.onboarding_concluido) {
             router.push("/dashboard");
             return;
@@ -108,6 +114,12 @@ function EntrarTurmaContent() {
 
       if (error || !turma) {
         setMensagem("Codigo invalido. Confira e tente novamente.");
+        setLoading(false);
+        return;
+      }
+
+      if (turma.arquivada) {
+        setMensagem("Esta turma esta arquivada no momento e nao aceita novos acessos.");
         setLoading(false);
         return;
       }
@@ -172,7 +184,7 @@ function EntrarTurmaContent() {
   }
 
   if (authLoading || checkingAccess) {
-    return <div>Carregando...</div>;
+    return <AppLoader />;
   }
 
   const veioSemTurma = searchParams.get("origem") === "sem-turma";
@@ -216,7 +228,7 @@ function EntrarTurmaContent() {
 
 export default function EntrarTurmaPage() {
   return (
-    <Suspense fallback={<div>Carregando...</div>}>
+    <Suspense fallback={<AppLoader />}>
       <EntrarTurmaContent />
     </Suspense>
   );

@@ -3,13 +3,16 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import AppLoader from "@/components/AppLoader";
+import NotificationBell from "@/components/NotificationBell";
+import MobileTimePickerModal from "@/components/MobileTimePickerModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { getTurmaDoAluno } from "@/lib/aluno-dashboard";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { atualizarOnboardingAluno, isValidUserRole, type UsuarioProfile } from "@/lib/usuarios";
 
 const DIAS_SEMANA = ["Domingo", "Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado"];
-const HORAS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
 
 function getIniciais(profile: UsuarioProfile | null) {
   const nome = profile?.nome?.trim();
@@ -31,7 +34,7 @@ export default function BoasVindasPage() {
   const [mensagem, setMensagem] = useState("");
   const [diasSelecionados, setDiasSelecionados] = useState<string[]>([]);
   const [horaSelecionada, setHoraSelecionada] = useState("");
-  const [mostrarModalHorario, setMostrarModalHorario] = useState(false);
+  const [pickerHorarioAberto, setPickerHorarioAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
@@ -73,6 +76,24 @@ export default function BoasVindasPage() {
 
         if (!matriculas[0]?.turma_id) {
           router.push("/entrar-turma?origem=sem-turma");
+          return;
+        }
+
+        if (matriculas[0].acesso_bloqueado) {
+          router.push("/dashboard");
+          return;
+        }
+
+        const { turma: turmaData, error: turmaError } = await withTimeout(getTurmaDoAluno(user.id));
+
+        if (turmaError || !turmaData) {
+          setMensagem("Nao conseguimos carregar os dados da sua turma agora. Tente novamente.");
+          setCheckingAccess(false);
+          return;
+        }
+
+        if (turmaData.arquivada) {
+          router.push("/dashboard");
           return;
         }
 
@@ -144,13 +165,13 @@ export default function BoasVindasPage() {
   }
 
   if (loading || checkingAccess) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
     <main className="min-h-screen bg-white pb-12 pt-8">
       <header className="mx-auto flex max-w-md items-center justify-between px-6">
-        <div className="w-10" />
+        <div className="w-[94px]" />
 
         <Image
           src="/img/logo.svg"
@@ -161,23 +182,26 @@ export default function BoasVindasPage() {
           priority
         />
 
-        <button
-          onClick={() => router.push("/conta")}
-          className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
-        >
-          {profile?.foto_url ? (
-            <Image
-              src={profile.foto_url}
-              alt={profile.nome || "Foto de perfil"}
-              width={44}
-              height={44}
-              className="h-full w-full object-cover"
-              unoptimized
-            />
-          ) : (
-            iniciaisAvatar
-          )}
-        </button>
+        <div className="flex w-[94px] items-center justify-end gap-3">
+          <NotificationBell userId={user?.id} />
+          <button
+            onClick={() => router.push("/conta")}
+            className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
+          >
+            {profile?.foto_url ? (
+              <Image
+                src={profile.foto_url}
+                alt={profile.nome || "Foto de perfil"}
+                width={44}
+                height={44}
+                className="h-full w-full object-cover"
+                unoptimized
+              />
+            ) : (
+              iniciaisAvatar
+            )}
+          </button>
+        </div>
       </header>
 
       <section className="mx-auto max-w-md px-6 pt-10">
@@ -230,7 +254,7 @@ export default function BoasVindasPage() {
 
             <button
               type="button"
-              onClick={() => setMostrarModalHorario(true)}
+              onClick={() => setPickerHorarioAberto(true)}
               className="w-full rounded-[12px] bg-[#2948c9] px-4 py-4 text-white"
             >
               <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.08em] text-white/70">
@@ -254,64 +278,15 @@ export default function BoasVindasPage() {
         </div>
       </section>
 
-      {mostrarModalHorario ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-6 sm:flex sm:items-center sm:justify-center">
-          <div className="mx-auto w-full max-w-sm rounded-[24px] bg-white px-5 py-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Selecionar horario</h3>
-              <button
-                type="button"
-                onClick={() => setMostrarModalHorario(false)}
-                className="text-xl leading-none text-slate-500"
-              >
-                x
-              </button>
-            </div>
-
-            <div className="mt-5 grid grid-cols-4 gap-3">
-              {HORAS.map((hora) => {
-                const valor = `${hora}:00`;
-                const selecionado = horaSelecionada === valor;
-
-                return (
-                  <button
-                    key={valor}
-                    type="button"
-                    onClick={() => setHoraSelecionada(valor)}
-                    className={`rounded-[10px] px-3 py-3 text-sm font-medium ${
-                      selecionado
-                        ? "bg-[#2948c9] text-white"
-                        : "bg-[#edf3ff] text-slate-600"
-                    }`}
-                  >
-                    {valor}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 flex gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setHoraSelecionada("");
-                  setMostrarModalHorario(false);
-                }}
-                className="flex-1 rounded-[10px] border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700"
-              >
-                Limpar
-              </button>
-              <button
-                type="button"
-                onClick={() => setMostrarModalHorario(false)}
-                className="flex-1 rounded-[10px] bg-[#0e5d77] px-4 py-3 text-sm font-medium text-white"
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <MobileTimePickerModal
+        open={pickerHorarioAberto}
+        hour={horaSelecionada ? horaSelecionada.slice(0, 2) : "19"}
+        minute={horaSelecionada ? horaSelecionada.slice(3, 5) : "00"}
+        onClose={() => setPickerHorarioAberto(false)}
+        onConfirm={(hour, minute) => {
+          setHoraSelecionada(`${hour}:${minute}`);
+        }}
+      />
     </main>
   );
 }

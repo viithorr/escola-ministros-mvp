@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { listarAtividadeDosAlunosDaAula, salvarPresencaManualDaAula, type AlunoAtividadeAula } from "@/lib/atividade-aula";
 import { getAulaComModuloTurma } from "@/lib/aulas";
@@ -141,7 +142,7 @@ export default function AlunosDaAulaPage() {
   }
 
   if (loading || loadingPage) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
@@ -183,9 +184,7 @@ export default function AlunosDaAulaPage() {
           ) : null}
 
           {carregandoDados ? (
-            <div className="rounded-[18px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-              Carregando atividade...
-            </div>
+            <AppLoader fullScreen={false} />
           ) : null}
 
           {!carregandoDados && (
@@ -263,9 +262,9 @@ export default function AlunosDaAulaPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/admin/encontros")} className="flex flex-col items-center gap-1 text-slate-400">
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
           <button className="flex flex-col items-center gap-1 text-slate-400">

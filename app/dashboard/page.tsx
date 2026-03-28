@@ -17,6 +17,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
+import { sincronizarPublicacoesAgendadas } from "@/lib/publicacoes";
 import { isValidUserRole, type UsuarioProfile } from "@/lib/usuarios";
 import {
   getTurmaDoAluno,
@@ -24,6 +25,8 @@ import {
   type ModuloAlunoDashboard,
   type TurmaAlunoDashboard,
 } from "@/lib/aluno-dashboard";
+import AppLoader from "@/components/AppLoader";
+import NotificationBell from "@/components/NotificationBell";
 
 function getIniciais(profile: UsuarioProfile | null) {
   const nome = profile?.nome?.trim();
@@ -81,6 +84,8 @@ export default function Dashboard() {
       }
 
       try {
+        await sincronizarPublicacoesAgendadas();
+
         const { matriculas, error: matriculaError } = await withTimeout(getMatriculasDoAluno(user.id));
 
         if (matriculaError) {
@@ -102,6 +107,12 @@ export default function Dashboard() {
           return;
         }
 
+        if (matriculaAtual.acesso_bloqueado) {
+          setMensagem("Seu acesso a esta turma esta bloqueado no momento. Fale com o administrador.");
+          setLoadingTurma(false);
+          return;
+        }
+
         const [{ turma: turmaData, turmaId, error: turmaError }, { modulos: modulosData, error: modulosError }] =
           await Promise.all([
             withTimeout(getTurmaDoAluno(user.id)),
@@ -110,6 +121,12 @@ export default function Dashboard() {
 
         if (turmaError || !turmaData || !turmaId) {
           setMensagem("Nao conseguimos carregar os dados da sua turma agora. Tente novamente em alguns instantes.");
+          setLoadingTurma(false);
+          return;
+        }
+
+        if (turmaData.arquivada) {
+          setMensagem("Esta turma esta arquivada no momento. O conteudo e as interacoes estao indisponiveis.");
           setLoadingTurma(false);
           return;
         }
@@ -138,7 +155,7 @@ export default function Dashboard() {
   }, [user, profile, profileError, loading, router]);
 
   if (loading || loadingTurma) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   if (mensagem) {
@@ -150,14 +167,14 @@ export default function Dashboard() {
   }
 
   if (!turma) {
-    return <div>Redirecionando...</div>;
+    return <AppLoader />;
   }
 
   return (
     <main className="min-h-screen bg-white pb-28 pt-28">
       <header className="fixed inset-x-0 top-0 z-30 bg-white px-4 pb-4 pt-5">
         <div className="mx-auto flex max-w-md items-center justify-between">
-          <div className="w-12" />
+          <div className="w-[94px]" />
 
           <Image
             src="/img/logo.svg"
@@ -168,23 +185,26 @@ export default function Dashboard() {
             priority
           />
 
-          <button
-            onClick={() => router.push("/conta")}
-            className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
-          >
-            {profile?.foto_url ? (
-              <Image
-                src={profile.foto_url}
-                alt={profile.nome || "Foto de perfil"}
-                width={44}
-                height={44}
-                className="h-full w-full object-cover"
-                unoptimized
-              />
-            ) : (
-              iniciaisAvatar
-            )}
-          </button>
+          <div className="flex w-[94px] items-center justify-end gap-3">
+            <NotificationBell userId={user?.id} />
+            <button
+              onClick={() => router.push("/conta")}
+              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
+            >
+              {profile?.foto_url ? (
+                <Image
+                  src={profile.foto_url}
+                  alt={profile.nome || "Foto de perfil"}
+                  width={44}
+                  height={44}
+                  className="h-full w-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                iniciaisAvatar
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -298,12 +318,12 @@ export default function Dashboard() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/encontros")} className="flex flex-col items-center gap-1 text-slate-400">
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/progresso")} className="flex flex-col items-center gap-1 text-slate-400">
             <ChartPie className="h-7 w-7 stroke-[1.8]" />
             <span className="text-[10px] font-medium">Progresso</span>
           </button>

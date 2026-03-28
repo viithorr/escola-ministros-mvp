@@ -17,7 +17,9 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
+import { arquivarTurma, excluirTurma } from "@/lib/admin-turmas";
 import { AulaModulo } from "@/lib/aulas";
 import {
   atualizarModulo,
@@ -27,6 +29,7 @@ import {
   ModuloTurma,
 } from "@/lib/modulos";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
+import { supabase } from "@/lib/supabase";
 import { atualizarNomeTurma, getTurmaById, TurmaAdmin } from "@/lib/turmas";
 import { isValidUserRole, UsuarioProfile } from "@/lib/usuarios";
 
@@ -68,6 +71,9 @@ export default function TurmaPage() {
   const [moduloParaExcluir, setModuloParaExcluir] = useState<ModuloTurma | null>(null);
   const [excluindoModulo, setExcluindoModulo] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [acaoTurma, setAcaoTurma] = useState<"arquivar" | "excluir" | null>(null);
+  const [senhaConfirmacao, setSenhaConfirmacao] = useState("");
+  const [executandoAcaoTurma, setExecutandoAcaoTurma] = useState(false);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
 
@@ -267,8 +273,75 @@ export default function TurmaPage() {
     setSalvandoTurma(false);
   }
 
+  async function validarSenhaAdmin() {
+    if (!profile?.email || !senhaConfirmacao.trim()) {
+      setMensagem("Digite a senha do administrador para continuar.");
+      return false;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: profile.email,
+      password: senhaConfirmacao,
+    });
+
+    if (error) {
+      setMensagem("Senha invalida. Confira e tente novamente.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function handleConfirmarAcaoTurma() {
+    if (!turma || !acaoTurma) return;
+
+    setExecutandoAcaoTurma(true);
+    setMensagem("");
+
+    const senhaValida = await validarSenhaAdmin();
+
+    if (!senhaValida) {
+      setExecutandoAcaoTurma(false);
+      return;
+    }
+
+    if (acaoTurma === "arquivar") {
+      const { error } = await arquivarTurma(turma.id, !turma.arquivada);
+
+      if (error) {
+        setMensagem(error);
+        setExecutandoAcaoTurma(false);
+        return;
+      }
+
+      setTurma((estadoAtual) =>
+        estadoAtual
+          ? {
+              ...estadoAtual,
+              arquivada: !estadoAtual.arquivada,
+              arquivada_em: !estadoAtual.arquivada ? new Date().toISOString() : null,
+            }
+          : estadoAtual,
+      );
+      setSenhaConfirmacao("");
+      setAcaoTurma(null);
+      setExecutandoAcaoTurma(false);
+      return;
+    }
+
+    const { error } = await excluirTurma(turma.id);
+
+    if (error) {
+      setMensagem(error);
+      setExecutandoAcaoTurma(false);
+      return;
+    }
+
+    router.push("/admin");
+  }
+
   if (loading || loadingPage) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
@@ -304,9 +377,7 @@ export default function TurmaPage() {
           ) : null}
 
           {carregandoDados ? (
-            <div className="rounded-[18px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-              Carregando turma...
-            </div>
+            <AppLoader fullScreen={false} />
           ) : null}
 
           {!carregandoDados && turma ? (
@@ -515,6 +586,47 @@ export default function TurmaPage() {
                 Adicionar Novo Modulo
               </button>
 
+              <section className="space-y-4 rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-5">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-slate-900">Acoes da Turma</h3>
+                  <p className="text-sm leading-6 text-slate-500">
+                    Voc&ecirc; pode arquivar esta turma para bloquear acessos sem perder o conte&uacute;do, ou excluir a turma por completo.
+                  </p>
+                </div>
+
+                {turma.arquivada ? (
+                  <p className="rounded-[10px] bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                    Esta turma est&aacute; arquivada. Os alunos permanecem vinculados, mas sem acesso ao conte&uacute;do.
+                  </p>
+                ) : null}
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMensagem("");
+                      setSenhaConfirmacao("");
+                      setAcaoTurma("arquivar");
+                    }}
+                    className="rounded-[10px] bg-black px-4 py-3 text-sm font-medium text-white"
+                  >
+                    {turma.arquivada ? "Desarquivar Turma" : "Arquivar Turma"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMensagem("");
+                      setSenhaConfirmacao("");
+                      setAcaoTurma("excluir");
+                    }}
+                    className="rounded-[10px] bg-[#b42318] px-4 py-3 text-sm font-medium text-white"
+                  >
+                    Excluir Turma
+                  </button>
+                </div>
+              </section>
+
             </>
           ) : null}
         </section>
@@ -527,9 +639,12 @@ export default function TurmaPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button
+            onClick={() => router.push(`/admin/encontros?turma=${turmaId}`)}
+            className="flex flex-col items-center gap-1 text-slate-400"
+          >
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
           <button
@@ -671,6 +786,74 @@ export default function TurmaPage() {
                   className="flex-1 rounded-[10px] bg-[#b42318] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
                 >
                   {excluindoModulo ? "Excluindo..." : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {acaoTurma && turma ? (
+        <div className="fixed inset-0 z-[70] bg-slate-950/45 px-4 py-6 sm:flex sm:items-center sm:justify-center">
+          <div className="mx-auto w-full max-w-sm rounded-[22px] bg-white px-5 py-5 shadow-2xl">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {acaoTurma === "arquivar"
+                    ? turma.arquivada
+                      ? "Desarquivar turma"
+                      : "Arquivar turma"
+                    : "Excluir turma"}
+                </h2>
+                <p className="text-sm leading-6 text-slate-600">
+                  {acaoTurma === "arquivar"
+                    ? turma.arquivada
+                      ? "Os alunos voltarao a acessar aulas, encontros e interacoes desta turma."
+                      : "Os alunos permanecerao vinculados, mas sem acesso a aulas, encontros e interacoes."
+                    : "A turma e todo o conteudo dela serao excluidos. Os alunos manterao suas contas, mas ficarao sem turma e voltarao para a tela de ativar codigo."}
+                </p>
+              </div>
+
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-800">Senha do administrador</span>
+                <input
+                  type="password"
+                  value={senhaConfirmacao}
+                  onChange={(event) => setSenhaConfirmacao(event.target.value)}
+                  placeholder="Digite sua senha"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-sky-700"
+                />
+              </label>
+
+              {mensagem ? (
+                <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {mensagem}
+                </p>
+              ) : null}
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (executandoAcaoTurma) return;
+                    setAcaoTurma(null);
+                    setSenhaConfirmacao("");
+                  }}
+                  disabled={executandoAcaoTurma}
+                  className="flex-1 rounded-[10px] border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmarAcaoTurma}
+                  disabled={executandoAcaoTurma}
+                  className={`flex-1 rounded-[10px] px-4 py-3 text-sm font-medium text-white disabled:opacity-60 ${
+                    acaoTurma === "arquivar" ? "bg-black" : "bg-[#b42318]"
+                  }`}
+                >
+                  {executandoAcaoTurma ? "Confirmando..." : "Confirmar"}
                 </button>
               </div>
             </div>

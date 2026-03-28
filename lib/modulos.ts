@@ -91,6 +91,11 @@ export async function listarModulosComAulasDaTurma(turmaId: string) {
         duracao_texto,
         ordem,
         bloqueado,
+        data_publicacao,
+        data_fechamento,
+        publicado,
+        publicado_em,
+        conta_no_progresso,
         created_at
       )
     `,

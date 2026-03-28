@@ -8,6 +8,8 @@ export type TurmaAdmin = {
   categoria: CategoriaTurma | null;
   capa_url: string | null;
   codigo_entrada: string;
+  arquivada: boolean;
+  arquivada_em: string | null;
   created_at: string;
 };
 
@@ -74,7 +76,7 @@ export async function uploadCapaTurma(file: File) {
 export async function listarTurmas() {
   const { data, error } = await supabase
     .from("turmas")
-    .select("id, nome, categoria, capa_url, codigo_entrada, created_at")
+    .select("id, nome, categoria, capa_url, codigo_entrada, arquivada, arquivada_em, created_at")
     .order("created_at", { ascending: false });
 
   return { turmas: (data as TurmaAdmin[] | null) ?? [], error };
@@ -83,7 +85,7 @@ export async function listarTurmas() {
 export async function getTurmaById(turmaId: string) {
   const { data, error } = await supabase
     .from("turmas")
-    .select("id, nome, categoria, capa_url, codigo_entrada, created_at")
+    .select("id, nome, categoria, capa_url, codigo_entrada, arquivada, arquivada_em, created_at")
     .eq("id", turmaId)
     .maybeSingle<TurmaAdmin>();
 
@@ -97,7 +99,7 @@ export async function atualizarNomeTurma(turmaId: string, nome: string) {
       nome: nome.trim(),
     })
     .eq("id", turmaId)
-    .select("id, nome, categoria, capa_url, codigo_entrada, created_at")
+    .select("id, nome, categoria, capa_url, codigo_entrada, arquivada, arquivada_em, created_at")
     .single<TurmaAdmin>();
 
   return { turma: data, error };

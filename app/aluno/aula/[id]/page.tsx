@@ -13,12 +13,21 @@ import {
   House,
   Send,
 } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
+import NotificationBell from "@/components/NotificationBell";
 import { YouTubePlayer } from "@/components/YouTubePlayer";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAulaComModuloTurma, listarMateriaisDaAula, type MaterialAula } from "@/lib/aulas";
+import { ComentarioAula, criarComentarioDaAula, listarComentariosDaAula } from "@/lib/comentarios";
+import {
+  aulaEstaDisponivelParaAluno,
+  getAulaComModuloTurma,
+  listarMateriaisDaAula,
+  type MaterialAula,
+} from "@/lib/aulas";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { getProgressoDoAlunoNaAula, salvarConclusaoDaAula } from "@/lib/atividade-aula";
+import { sincronizarPublicacoesAgendadas } from "@/lib/publicacoes";
 import { isValidUserRole, type UsuarioProfile } from "@/lib/usuarios";
 
 type AulaAlunoCache = {
@@ -43,6 +52,34 @@ function getIniciais(profile: UsuarioProfile | null) {
   return (profile?.email?.slice(0, 2) || "AL").toUpperCase();
 }
 
+function getNomeComentario(alvo: ComentarioAula["autor"]) {
+  if (alvo?.nome?.trim()) return alvo.nome;
+  return alvo?.email ?? "Usuario";
+}
+
+function getIniciaisComentario(alvo: ComentarioAula["autor"]) {
+  const nome = alvo?.nome?.trim();
+
+  if (nome) {
+    const partes = nome.split(/\s+/).filter(Boolean);
+    const primeira = partes[0]?.[0] ?? "";
+    const ultima = partes.length > 1 ? partes[partes.length - 1]?.[0] ?? "" : "";
+    return `${primeira}${ultima || primeira}`.toUpperCase();
+  }
+
+  return (alvo?.email?.slice(0, 2) || "US").toUpperCase();
+}
+
+function formatarComentarioData(data: string) {
+  return new Date(data).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function AulaAlunoPage() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
@@ -59,7 +96,10 @@ export default function AulaAlunoPage() {
   const [materiaisAbertos, setMateriaisAbertos] = useState(true);
   const [dicaModulo, setDicaModulo] = useState("");
   const [salvandoConclusao, setSalvandoConclusao] = useState(false);
-  const [duvida, setDuvida] = useState("");
+  const [comentario, setComentario] = useState("");
+  const [comentarios, setComentarios] = useState<ComentarioAula[]>([]);
+  const [carregandoComentarios, setCarregandoComentarios] = useState(false);
+  const [salvandoComentario, setSalvandoComentario] = useState(false);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
   const storageKey = useMemo(() => (aulaId ? `aula-aluno-cache:${aulaId}` : null), [aulaId]);
@@ -125,20 +165,19 @@ export default function AulaAlunoPage() {
     if (loadingPage || !aulaId || !user) return;
 
     async function carregarTela() {
-      const userId = user?.id;
-      if (!userId) {
-        return;
-      }
-
+      const userId = user.id;
       const temCache =
         typeof window !== "undefined" && storageKey ? Boolean(window.sessionStorage.getItem(storageKey)) : false;
 
       if (!temCache) {
         setCarregandoDados(true);
       }
+
       setMensagem("");
 
       try {
+        await sincronizarPublicacoesAgendadas();
+
         const [{ aula, error: aulaError }, { progresso, error: progressoError }] = await Promise.all([
           withTimeout(getAulaComModuloTurma(aulaId)),
           withTimeout(getProgressoDoAlunoNaAula(aulaId, userId)),
@@ -164,17 +203,22 @@ export default function AulaAlunoPage() {
           return;
         }
 
-        const turmaDoAluno = matriculas[0]?.turma_id;
+        const matricula = matriculas[0];
+        const turmaDoAluno = matricula?.turma_id;
 
         if (!turmaDoAluno || turmaDoAluno !== aula.modulos.turmas.id) {
-          setMensagem("Esta aula nao esta disponivel para o seu acesso.");
-          setCarregandoDados(false);
+          if (storageKey && typeof window !== "undefined") {
+            window.sessionStorage.removeItem(storageKey);
+          }
+          router.push("/dashboard");
           return;
         }
 
-        if (aula.bloqueado) {
-          setMensagem("Esta aula esta bloqueada no momento.");
-          setCarregandoDados(false);
+        if (matricula.acesso_bloqueado || aula.modulos.turmas.arquivada || !aulaEstaDisponivelParaAluno(aula) || aula.bloqueado) {
+          if (storageKey && typeof window !== "undefined") {
+            window.sessionStorage.removeItem(storageKey);
+          }
+          router.push("/dashboard");
           return;
         }
 
@@ -216,7 +260,27 @@ export default function AulaAlunoPage() {
     }
 
     void carregarTela();
-  }, [aulaId, loadingPage, storageKey, user]);
+  }, [aulaId, loadingPage, router, storageKey, user]);
+
+  useEffect(() => {
+    if (loadingPage || !aulaId || !user) return;
+
+    async function carregarComentarios() {
+      setCarregandoComentarios(true);
+
+      try {
+        const { comentarios: comentariosData, error } = await withTimeout(listarComentariosDaAula(aulaId));
+
+        if (!error) {
+          setComentarios(comentariosData);
+        }
+      } finally {
+        setCarregandoComentarios(false);
+      }
+    }
+
+    void carregarComentarios();
+  }, [aulaId, loadingPage, user]);
 
   async function handleMarcarConcluida(valor: boolean) {
     if (!user || !aulaId) return;
@@ -233,6 +297,7 @@ export default function AulaAlunoPage() {
     }
 
     setConcluida(valor);
+
     if (storageKey && typeof window !== "undefined") {
       const cached = window.sessionStorage.getItem(storageKey);
       if (cached) {
@@ -245,20 +310,50 @@ export default function AulaAlunoPage() {
         }
       }
     }
+
     setSalvandoConclusao(false);
   }
 
+  async function handleEnviarComentario() {
+    if (!user || !aulaId || !comentario.trim()) {
+      setMensagem("Escreva um comentario para enviar.");
+      return;
+    }
+
+    setSalvandoComentario(true);
+    setMensagem("");
+
+    const { error } = await criarComentarioDaAula(aulaId, user.id, comentario);
+
+    if (error) {
+      setMensagem("Nao foi possivel enviar o comentario agora. Tente novamente.");
+      setSalvandoComentario(false);
+      return;
+    }
+
+    const { comentarios: comentariosData, error: listarError } = await listarComentariosDaAula(aulaId);
+
+    if (!listarError) {
+      setComentarios(comentariosData);
+    }
+
+    setComentario("");
+    setSalvandoComentario(false);
+  }
+
   if (loading || loadingPage) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
     <main className="min-h-screen bg-white pb-28 pt-28">
       <header className="fixed inset-x-0 top-0 z-30 bg-white px-4 pb-4 pt-5">
         <div className="mx-auto flex max-w-md items-center justify-between">
-          <button onClick={() => router.push("/dashboard")} className="w-12 text-left text-sm text-slate-600">
-            Voltar
-          </button>
+          <div className="w-[94px]">
+            <button onClick={() => router.push("/dashboard")} className="w-12 text-left text-sm text-slate-600">
+              Voltar
+            </button>
+          </div>
 
           <Image
             src="/img/logo.svg"
@@ -269,31 +364,32 @@ export default function AulaAlunoPage() {
             priority
           />
 
-          <button
-            onClick={() => router.push("/conta")}
-            className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
-          >
-            {profile?.foto_url ? (
-              <Image
-                src={profile.foto_url}
-                alt={profile.nome || "Foto de perfil"}
-                width={44}
-                height={44}
-                className="h-full w-full object-cover"
-                unoptimized
-              />
-            ) : (
-              iniciaisAvatar
-            )}
-          </button>
+          <div className="flex items-center justify-end gap-3">
+            <NotificationBell userId={user?.id} />
+            <button
+              onClick={() => router.push("/conta")}
+              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700"
+            >
+              {profile?.foto_url ? (
+                <Image
+                  src={profile.foto_url}
+                  alt={profile.nome || "Foto de perfil"}
+                  width={44}
+                  height={44}
+                  className="h-full w-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                iniciaisAvatar
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 px-4">
         {carregandoDados ? (
-          <div className="rounded-[18px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-            Carregando aula...
-          </div>
+          <AppLoader fullScreen={false} />
         ) : (
           <section className="space-y-5">
             <h1 className="text-[2rem] font-semibold leading-none text-[#1c6a91]">{tituloAula}</h1>
@@ -321,7 +417,7 @@ export default function AulaAlunoPage() {
 
             <button
               type="button"
-              onClick={() => handleMarcarConcluida(!concluida)}
+              onClick={() => void handleMarcarConcluida(!concluida)}
               disabled={salvandoConclusao}
               className={`flex items-center gap-2 text-base font-medium ${
                 concluida ? "text-[#11a6db]" : "text-[#c8c8c8]"
@@ -367,22 +463,95 @@ export default function AulaAlunoPage() {
               ) : null}
             </div>
 
-            <div className="space-y-3">
-              <h2 className="text-[1.3rem] font-medium text-slate-900">Envie sua Dúvida</h2>
+            <div className="space-y-4">
+              <h2 className="text-[1.3rem] font-medium text-slate-900">Comentarios</h2>
               <textarea
-                value={duvida}
-                onChange={(event) => setDuvida(event.target.value)}
-                placeholder="Digite sua dúvida sobre esta aula"
+                value={comentario}
+                onChange={(event) => setComentario(event.target.value)}
+                placeholder="Escreva um comentario sobre esta aula"
                 className="min-h-[120px] w-full rounded-[10px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
               />
               <button
                 type="button"
-                onClick={() => setMensagem("O envio de duvidas sera liberado em breve.")}
-                className="ml-auto flex items-center gap-2 rounded-[8px] bg-[#0e5d77] px-5 py-3 text-sm font-medium text-white"
+                onClick={() => void handleEnviarComentario()}
+                disabled={salvandoComentario}
+                className="ml-auto flex items-center gap-2 rounded-[8px] bg-[#0e5d77] px-5 py-3 text-sm font-medium text-white disabled:opacity-60"
               >
-                Enviar
+                {salvandoComentario ? "Enviando..." : "Enviar"}
                 <Send className="h-4 w-4" />
               </button>
+
+              <div className="space-y-4">
+                {carregandoComentarios ? (
+                  <div className="rounded-[16px] border border-slate-200 px-4 py-5 text-sm text-slate-500">
+                    Carregando comentarios...
+                  </div>
+                ) : comentarios.length === 0 ? (
+                  <div className="rounded-[16px] border border-slate-200 px-4 py-5 text-sm text-slate-500">
+                    Nenhum comentario nesta aula ainda.
+                  </div>
+                ) : (
+                  comentarios.map((item) => (
+                    <div key={item.id} className="space-y-3 rounded-[18px] border border-slate-200 bg-white px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
+                          {item.autor?.foto_url ? (
+                            <Image
+                              src={item.autor.foto_url}
+                              alt={getNomeComentario(item.autor)}
+                              width={44}
+                              height={44}
+                              className="h-full w-full object-cover"
+                              unoptimized
+                            />
+                          ) : (
+                            getIniciaisComentario(item.autor)
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{getNomeComentario(item.autor)}</p>
+                            <p className="text-xs text-slate-400">{formatarComentarioData(item.criado_em)}</p>
+                          </div>
+                          <p className="text-sm leading-6 text-slate-700">{item.comentario}</p>
+                        </div>
+                      </div>
+
+                      {item.respostas.length > 0 ? (
+                        <div className="space-y-3 border-l-2 border-slate-100 pl-4">
+                          {item.respostas.map((resposta) => (
+                            <div key={resposta.id} className="flex items-start gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-[11px] font-semibold text-slate-700">
+                                {resposta.autor?.foto_url ? (
+                                  <Image
+                                    src={resposta.autor.foto_url}
+                                    alt={getNomeComentario(resposta.autor)}
+                                    width={36}
+                                    height={36}
+                                    className="h-full w-full object-cover"
+                                    unoptimized
+                                  />
+                                ) : (
+                                  getIniciaisComentario(resposta.autor)
+                                )}
+                              </div>
+
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-sm font-semibold text-slate-900">{getNomeComentario(resposta.autor)}</p>
+                                  <p className="text-xs text-slate-400">{formatarComentarioData(resposta.criado_em)}</p>
+                                </div>
+                                <p className="text-sm leading-6 text-slate-700">{resposta.comentario}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -395,12 +564,12 @@ export default function AulaAlunoPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/encontros")} className="flex flex-col items-center gap-1 text-slate-400">
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/progresso")} className="flex flex-col items-center gap-1 text-slate-400">
             <ChartPie className="h-7 w-7 stroke-[1.8]" />
             <span className="text-[10px] font-medium">Progresso</span>
           </button>

@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { supabase } from "@/lib/supabase";
@@ -256,7 +257,7 @@ export default function AdminPage() {
   }
 
   if (loading || loadingAdmin) {
-    return <div>Carregando...</div>;
+    return <AppLoader />;
   }
 
   if (mensagem && !mostrarFormulario && turmas.length === 0 && !loadingTurmas) {
@@ -302,9 +303,7 @@ export default function AdminPage() {
           ) : null}
 
           {loadingTurmas ? (
-            <div className="rounded-[22px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-              Carregando turmas...
-            </div>
+            <AppLoader fullScreen={false} />
           ) : null}
 
           {!loadingTurmas && turmas.length === 0 ? (
@@ -384,9 +383,9 @@ export default function AdminPage() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button onClick={() => router.push("/admin/encontros")} className="flex flex-col items-center gap-1 text-slate-400">
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
           <button onClick={() => router.push("/admin/progresso")} className="flex flex-col items-center gap-1 text-slate-400">

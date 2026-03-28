@@ -21,6 +21,18 @@ export type AlunoProgressoTurma = {
   progresso_percentual: number;
 };
 
+export type AlunoDetalheProgressoAdmin = {
+  usuario_id: string;
+  nome: string | null;
+  email: string;
+  foto_url: string | null;
+  aulas_concluidas: number;
+  aulas_nao_feitas: number;
+  total_aulas_periodo: number;
+  faltas_periodo: number;
+  acesso_bloqueado: boolean;
+};
+
 type ProgressoAulaRow = {
   id: string;
   usuario_id: string;
@@ -33,6 +45,7 @@ type ProgressoAulaRow = {
 
 type AlunoTurmaRow = {
   usuario_id: string;
+  acesso_bloqueado?: boolean;
   usuarios:
     | {
         id: string;
@@ -49,12 +62,55 @@ type AlunoTurmaRow = {
     | null;
 };
 
+type AulaPanoramaRow = {
+  id: string;
+  created_at: string;
+  data_publicacao: string | null;
+  publicado: boolean;
+  publicado_em: string | null;
+  bloqueado: boolean;
+  conta_no_progresso: boolean;
+};
+
+type UsuarioDetalheRow = {
+  id: string;
+  nome: string | null;
+  email: string;
+  foto_url: string | null;
+};
+
+function aulaJaFoiPublicada(aula: AulaPanoramaRow, referencia = new Date()) {
+  if (aula.publicado) return true;
+  if (!aula.data_publicacao) return false;
+  return new Date(aula.data_publicacao).getTime() <= referencia.getTime();
+}
+
+function getPeriodoDeFaltas(mes: number, ano: number) {
+  const agora = new Date();
+  const inicio = new Date(ano, mes - 1, 1, 0, 0, 0, 0);
+  const fimMes = new Date(ano, mes, 0, 23, 59, 59, 999);
+  const fim = fimMes.getTime() > agora.getTime() ? agora : fimMes;
+
+  const formatar = (data: Date) => {
+    const yyyy = data.getFullYear();
+    const mm = String(data.getMonth() + 1).padStart(2, "0");
+    const dd = String(data.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  return {
+    inicio: formatar(inicio),
+    fim: formatar(fim),
+  };
+}
+
 export async function listarAtividadeDosAlunosDaAula(turmaId: string, aulaId: string) {
   const { data: matriculas, error: matriculasError } = await supabase
     .from("alunos_turma")
     .select(
       `
       usuario_id,
+      acesso_bloqueado,
       usuarios (
         id,
         nome,
@@ -77,6 +133,7 @@ export async function listarAtividadeDosAlunosDaAula(turmaId: string, aulaId: st
       nome: usuario?.nome ?? null,
       email: usuario?.email ?? "",
       foto_url: usuario?.foto_url ?? null,
+      acesso_bloqueado: item.acesso_bloqueado ?? false,
     };
   });
 
@@ -124,6 +181,7 @@ export async function listarProgressoDosAlunosDaTurma(turmaId: string) {
     .select(
       `
       usuario_id,
+      acesso_bloqueado,
       usuarios (
         id,
         nome,
@@ -146,6 +204,7 @@ export async function listarProgressoDosAlunosDaTurma(turmaId: string) {
       nome: usuario?.nome ?? null,
       email: usuario?.email ?? "",
       foto_url: usuario?.foto_url ?? null,
+      acesso_bloqueado: item.acesso_bloqueado ?? false,
     };
   });
 
@@ -232,6 +291,129 @@ export async function listarProgressoDosAlunosDaTurma(turmaId: string) {
         progresso_percentual: progressoPercentual,
       };
     }),
+    error: null,
+  };
+}
+
+export async function getDetalheDoAlunoNaTurma(
+  turmaId: string,
+  usuarioId: string,
+  mes: number,
+  ano: number,
+) {
+  const agora = new Date();
+
+  const [
+    { data: usuario, error: usuarioError },
+    { data: matricula, error: matriculaError },
+    { data: modulos, error: modulosError },
+    { data: encontrosPeriodo, error: encontrosError },
+  ] = await Promise.all([
+    supabase.from("usuarios").select("id, nome, email, foto_url").eq("id", usuarioId).maybeSingle<UsuarioDetalheRow>(),
+    supabase
+      .from("alunos_turma")
+      .select("acesso_bloqueado")
+      .eq("usuario_id", usuarioId)
+      .eq("turma_id", turmaId)
+      .maybeSingle<{ acesso_bloqueado: boolean }>(),
+    supabase.from("modulos").select("id").eq("turma_id", turmaId),
+    (() => {
+      const periodo = getPeriodoDeFaltas(mes, ano);
+      return supabase
+        .from("encontros")
+        .select("id")
+        .eq("turma_id", turmaId)
+        .gte("data_encontro", periodo.inicio)
+        .lte("data_encontro", periodo.fim);
+    })(),
+  ]);
+
+  if (usuarioError || !usuario) {
+    return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: usuarioError || new Error("Aluno nao encontrado.") };
+  }
+
+  if (modulosError) {
+    return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: modulosError };
+  }
+
+  if (matriculaError) {
+    return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: matriculaError };
+  }
+
+  if (encontrosError) {
+    return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: encontrosError };
+  }
+
+  const moduloIds = ((modulos as { id: string }[] | null) ?? []).map((item) => item.id);
+
+  let aulasConcluidas = 0;
+  let aulasNaoFeitas = 0;
+  let totalAulasPeriodo = 0;
+
+  if (moduloIds.length > 0) {
+    const { data: aulas, error: aulasError } = await supabase
+      .from("aulas")
+      .select("id, created_at, data_publicacao, publicado, publicado_em, bloqueado, conta_no_progresso")
+      .in("modulo_id", moduloIds)
+      .eq("conta_no_progresso", true)
+      .eq("bloqueado", false);
+
+    if (aulasError) {
+      return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: aulasError };
+    }
+
+    const aulasElegiveis = ((aulas as AulaPanoramaRow[] | null) ?? []).filter((item) => aulaJaFoiPublicada(item, agora));
+    totalAulasPeriodo = aulasElegiveis.length;
+
+    if (aulasElegiveis.length > 0) {
+      const aulaIds = aulasElegiveis.map((item) => item.id);
+      const { data: progressoRows, error: progressoError } = await supabase
+        .from("progresso_aula")
+        .select("aula_id")
+        .eq("usuario_id", usuarioId)
+        .in("aula_id", aulaIds)
+        .eq("concluido", true);
+
+      if (progressoError) {
+        return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: progressoError };
+      }
+
+      aulasConcluidas = ((progressoRows as { aula_id: string }[] | null) ?? []).length;
+      aulasNaoFeitas = Math.max(totalAulasPeriodo - aulasConcluidas, 0);
+    }
+  }
+
+  const encontroIds = ((encontrosPeriodo as { id: string }[] | null) ?? []).map((item) => item.id);
+  let faltasPeriodo = 0;
+
+  if (encontroIds.length > 0) {
+    const { data: presencas, error: presencasError } = await supabase
+      .from("presencas")
+      .select("encontro_id, presente")
+      .eq("usuario_id", usuarioId)
+      .in("encontro_id", encontroIds)
+      .eq("presente", true);
+
+    if (presencasError) {
+      return { detalhe: null as AlunoDetalheProgressoAdmin | null, error: presencasError };
+    }
+
+    const presencasConfirmadas = ((presencas as { encontro_id: string; presente: boolean }[] | null) ?? []).length;
+    faltasPeriodo = Math.max(encontroIds.length - presencasConfirmadas, 0);
+  }
+
+  return {
+    detalhe: {
+      usuario_id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      foto_url: usuario.foto_url,
+      aulas_concluidas: aulasConcluidas,
+      aulas_nao_feitas: aulasNaoFeitas,
+      total_aulas_periodo: totalAulasPeriodo,
+      faltas_periodo: faltasPeriodo,
+      acesso_bloqueado: matricula?.acesso_bloqueado ?? false,
+    },
     error: null,
   };
 }

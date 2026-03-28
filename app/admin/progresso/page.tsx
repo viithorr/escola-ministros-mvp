@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
+import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { listarProgressoDosAlunosDaTurma, type AlunoProgressoTurma } from "@/lib/atividade-aula";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
@@ -141,7 +142,7 @@ function AdminProgressoPageContent() {
   }, [loadingPage, turmaIdSelecionada]);
 
   if (loading || loadingPage) {
-    return <div>Carregando acesso...</div>;
+    return <AppLoader />;
   }
 
   return (
@@ -192,9 +193,7 @@ function AdminProgressoPageContent() {
           ) : null}
 
           {carregandoDados ? (
-            <div className="rounded-[18px] bg-slate-100 px-4 py-12 text-center text-slate-500">
-              Carregando progresso...
-            </div>
+            <AppLoader fullScreen={false} />
           ) : null}
 
           {!carregandoDados && !turmaIdSelecionada ? (
@@ -281,7 +280,13 @@ function AdminProgressoPageContent() {
                     <button
                       key={aluno.usuario_id}
                       type="button"
-                      onClick={() => {}}
+                      onClick={() =>
+                        router.push(
+                          turmaIdSelecionada
+                            ? `/admin/progresso/aluno/${aluno.usuario_id}?turma=${turmaIdSelecionada}`
+                            : "/admin/progresso",
+                        )
+                      }
                       className="flex w-full items-center justify-between gap-4 text-left"
                     >
                       <div className="flex min-w-0 items-center gap-3">
@@ -325,9 +330,12 @@ function AdminProgressoPageContent() {
             <span className="text-[10px] font-medium">Inicio</span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-slate-400">
+          <button
+            onClick={() => router.push(turmaIdSelecionada ? `/admin/encontros?turma=${turmaIdSelecionada}` : "/admin/encontros")}
+            className="flex flex-col items-center gap-1 text-slate-400"
+          >
             <CalendarDays className="h-7 w-7 stroke-[1.8]" />
-            <span className="text-[10px] font-medium">Agenda</span>
+            <span className="text-[10px] font-medium">Encontros</span>
           </button>
 
           <button className="flex flex-col items-center gap-1 text-black">
@@ -347,7 +355,7 @@ function AdminProgressoPageContent() {
 
 export default function AdminProgressoPage() {
   return (
-    <Suspense fallback={<div>Carregando progresso...</div>}>
+    <Suspense fallback={<AppLoader />}>
       <AdminProgressoPageContent />
     </Suspense>
   );

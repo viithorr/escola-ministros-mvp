@@ -1,3 +1,4 @@
+import { aulaEstaDisponivelParaAluno } from "@/lib/aulas";
 import { supabase } from "@/lib/supabase";
 
 export type AulaAlunoDashboard = {
@@ -8,6 +9,11 @@ export type AulaAlunoDashboard = {
   duracao_texto: string | null;
   ordem: number | null;
   bloqueado: boolean;
+  data_publicacao: string | null;
+  data_fechamento: string | null;
+  publicado: boolean;
+  publicado_em: string | null;
+  conta_no_progresso: boolean;
   created_at: string;
   concluido: boolean;
 };
@@ -26,6 +32,8 @@ export type TurmaAlunoDashboard = {
   nome: string;
   categoria: "instrumental" | "vocal" | null;
   capa_url: string | null;
+  arquivada: boolean;
+  arquivada_em: string | null;
   created_at: string;
 };
 
@@ -40,6 +48,8 @@ export async function getTurmaDoAluno(usuarioId: string) {
         nome,
         categoria,
         capa_url,
+        arquivada,
+        arquivada_em,
         created_at
       )
     `,
@@ -85,6 +95,11 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
         duracao_texto,
         ordem,
         bloqueado,
+        data_publicacao,
+        data_fechamento,
+        publicado,
+        publicado_em,
+        conta_no_progresso,
         created_at
       )
     `,
@@ -119,20 +134,23 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     );
   }
 
-  const modulos = ((data as ModuloAlunoDashboard[] | null) ?? []).map((modulo) => ({
-    ...modulo,
-    aulas: [...(modulo.aulas ?? [])]
-      .sort((a, b) => {
-        const ordemA = a.ordem ?? 0;
-        const ordemB = b.ordem ?? 0;
-        if (ordemA !== ordemB) return ordemA - ordemB;
-        return a.created_at.localeCompare(b.created_at);
-      })
-      .map((aula) => ({
-        ...aula,
-        concluido: progressoPorAula.get(aula.id) ?? false,
-      })),
-  }));
+  const modulos = ((data as ModuloAlunoDashboard[] | null) ?? [])
+    .map((modulo) => ({
+      ...modulo,
+      aulas: [...(modulo.aulas ?? [])]
+        .filter((aula) => aulaEstaDisponivelParaAluno(aula))
+        .sort((a, b) => {
+          const ordemA = a.ordem ?? 0;
+          const ordemB = b.ordem ?? 0;
+          if (ordemA !== ordemB) return ordemA - ordemB;
+          return a.created_at.localeCompare(b.created_at);
+        })
+        .map((aula) => ({
+          ...aula,
+          concluido: progressoPorAula.get(aula.id) ?? false,
+        })),
+    }))
+    .filter((modulo) => modulo.aulas.length > 0);
 
   return { modulos, error };
 }
