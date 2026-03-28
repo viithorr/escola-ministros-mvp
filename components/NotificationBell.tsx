@@ -16,10 +16,12 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
   useEffect(() => {
     if (!userId) return;
 
+    const userIdAtual = userId;
+
     let ativo = true;
 
     async function carregarTotal() {
-      const { total: totalNaoLidas } = await contarNotificacoesNaoVisualizadas(userId);
+      const { total: totalNaoLidas } = await contarNotificacoesNaoVisualizadas(userIdAtual);
       if (!ativo) return;
       setTotal(totalNaoLidas);
     }
