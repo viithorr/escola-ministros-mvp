@@ -106,13 +106,16 @@ function AdminProgressoAlunoPageContent() {
       return;
     }
 
+    const alunoIdAtual = alunoId;
+    const turmaIdAtual = turmaId;
+
     async function carregarDetalhe() {
       setCarregandoDados(true);
       setMensagem("");
 
       try {
         const { detalhe: detalheData, error } = await withTimeout(
-          getDetalheDoAlunoNaTurma(turmaId, alunoId, mesSelecionado, anoSelecionado),
+          getDetalheDoAlunoNaTurma(turmaIdAtual, alunoIdAtual, mesSelecionado, anoSelecionado),
         );
 
         if (error || !detalheData) {
