@@ -171,12 +171,15 @@ function AdminEncontroEditorPageContent() {
   useEffect(() => {
     if (loadingPage || !turmaId || !encontroId) return;
 
+    const turmaIdAtual = turmaId;
+    const encontroIdAtual = encontroId;
+
     async function carregarTela() {
       setCarregandoDados(true);
       setMensagem("");
 
       try {
-        const { turma: turmaData, error: turmaError } = await withTimeout(getTurmaById(turmaId));
+        const { turma: turmaData, error: turmaError } = await withTimeout(getTurmaById(turmaIdAtual));
 
         if (turmaError || !turmaData) {
           setMensagem("Nao conseguimos carregar esta turma agora. Tente novamente.");
@@ -192,8 +195,8 @@ function AdminEncontroEditorPageContent() {
         }
 
         const [{ encontro, error: encontroError }, { alunos, error: presencasError }] = await Promise.all([
-          withTimeout(getEncontroByIdAdmin(encontroId)),
-          withTimeout(listarPresencasDoEncontro(turmaId, encontroId)),
+          withTimeout(getEncontroByIdAdmin(encontroIdAtual)),
+          withTimeout(listarPresencasDoEncontro(turmaIdAtual, encontroIdAtual)),
         ]);
 
         if (encontroError || !encontro) {
