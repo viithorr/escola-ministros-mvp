@@ -258,6 +258,7 @@ export default function NovaAulaPage() {
   const [transcricaoAvaliacao, setTranscricaoAvaliacao] = useState("");
   const [gerandoQuestoes, setGerandoQuestoes] = useState(false);
   const [avaliacaoGeradaPorTranscricao, setAvaliacaoGeradaPorTranscricao] = useState(false);
+  const [mensagemGeracaoQuestoes, setMensagemGeracaoQuestoes] = useState("");
   const inputMaterialRef = useRef<HTMLInputElement | null>(null);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
@@ -539,19 +540,21 @@ export default function NovaAulaPage() {
     try {
       const conteudo = await arquivo.text();
       setTranscricaoAvaliacao(conteudo);
+      setMensagemGeracaoQuestoes("");
       setMensagem("");
     } catch {
-      setMensagem("Nao conseguimos ler o arquivo da transcricao agora.");
+      setMensagemGeracaoQuestoes("Nao conseguimos ler o arquivo da transcricao agora.");
     }
   }
 
   async function handleGerarQuestoesPorTranscricao() {
     if (!transcricaoAvaliacao.trim()) {
-      setMensagem("Cole ou envie a transcricao antes de gerar as questoes.");
+      setMensagemGeracaoQuestoes("Cole ou envie a transcricao antes de gerar as questoes.");
       return;
     }
 
     setGerandoQuestoes(true);
+    setMensagemGeracaoQuestoes("");
     setMensagem("");
 
     try {
@@ -579,7 +582,7 @@ export default function NovaAulaPage() {
       };
 
       if (!response.ok || !payload.questoes) {
-        setMensagem(payload.error || "Nao conseguimos gerar as questoes agora.");
+        setMensagemGeracaoQuestoes(payload.error || "Nao conseguimos gerar as questoes agora.");
         setGerandoQuestoes(false);
         return;
       }
@@ -598,8 +601,9 @@ export default function NovaAulaPage() {
       );
       setAvaliacaoAtiva(true);
       setAvaliacaoGeradaPorTranscricao(true);
+      setMensagemGeracaoQuestoes("Questoes geradas. Revise antes de publicar.");
     } catch {
-      setMensagem("Nao conseguimos gerar as questoes agora.");
+      setMensagemGeracaoQuestoes("Nao conseguimos gerar as questoes agora.");
     } finally {
       setGerandoQuestoes(false);
     }
@@ -1224,6 +1228,18 @@ export default function NovaAulaPage() {
                       {avaliacaoGeradaPorTranscricao ? (
                         <p className="text-xs font-medium text-[#0e5d77]">
                           Questoes geradas a partir da transcricao. Revise e ajuste antes de publicar.
+                        </p>
+                      ) : null}
+
+                      {mensagemGeracaoQuestoes ? (
+                        <p
+                          className={`rounded-[12px] px-4 py-3 text-sm ${
+                            mensagemGeracaoQuestoes.includes("Questoes geradas")
+                              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border border-amber-200 bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {mensagemGeracaoQuestoes}
                         </p>
                       ) : null}
                     </div>
