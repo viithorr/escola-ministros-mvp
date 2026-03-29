@@ -270,7 +270,7 @@ export default function Dashboard() {
                             key={aula.id}
                             type="button"
                             onClick={() => {
-                              if (aula.bloqueado) return;
+                              if (aula.bloqueado || aula.bloqueado_por_avaliacao) return;
                               router.push(`/aluno/aula/${aula.id}`);
                             }}
                             className="flex w-full items-start gap-3 rounded-[4px] bg-white px-4 py-3 text-left shadow-[0_1px_6px_rgba(15,23,42,0.06)]"
@@ -293,7 +293,7 @@ export default function Dashboard() {
                             </div>
 
                             <div className="pt-1">
-                              {aula.bloqueado ? (
+                              {aula.bloqueado || aula.bloqueado_por_avaliacao ? (
                                 <Lock className="h-5 w-5 text-[#c7c7c7]" strokeWidth={2.2} />
                               ) : (
                                 <PlaySquare className="h-5 w-5 text-black" strokeWidth={2.2} />

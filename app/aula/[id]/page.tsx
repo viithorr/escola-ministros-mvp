@@ -17,12 +17,14 @@ import {
   MessageSquare,
   Pencil,
   PlaySquare,
+  SquarePen,
   Trash2,
 } from "lucide-react";
 import AppLoader from "@/components/AppLoader";
 import MobileDatePickerModal from "@/components/MobileDatePickerModal";
 import MobileTimePickerModal from "@/components/MobileTimePickerModal";
 import { notificarTurma } from "@/lib/admin-notificacoes";
+import { getAvaliacaoDaAula, salvarAvaliacaoManualDaAula } from "@/lib/avaliacoes";
 import { useAuth } from "@/contexts/AuthContext";
 import { YouTubePlayer } from "@/components/YouTubePlayer";
 import { contarComentariosDaAula } from "@/lib/comentarios";
@@ -53,6 +55,17 @@ type MaterialRascunho = {
 
 type ModoPublicacao = "agora" | "agendada";
 type ModoPrazo = "automatico" | "manual";
+type AlternativaRascunho = {
+  id: string;
+  texto: string;
+  correta: boolean;
+};
+type QuestaoRascunho = {
+  id: string;
+  pergunta: string;
+  explicacao: string;
+  alternativas: AlternativaRascunho[];
+};
 
 function extrairYouTubeEmbedUrl(url: string) {
   try {
@@ -240,6 +253,11 @@ export default function NovaAulaPage() {
   const [statusPlayer, setStatusPlayer] = useState<"idle" | "playing" | "paused" | "ended">("idle");
   const [progressoPlayer, setProgressoPlayer] = useState<{ currentTime: number; duration: number } | null>(null);
   const [comentariosCount, setComentariosCount] = useState(0);
+  const [avaliacaoAtiva, setAvaliacaoAtiva] = useState(false);
+  const [questoesAvaliacao, setQuestoesAvaliacao] = useState<QuestaoRascunho[]>([]);
+  const [transcricaoAvaliacao, setTranscricaoAvaliacao] = useState("");
+  const [gerandoQuestoes, setGerandoQuestoes] = useState(false);
+  const [avaliacaoGeradaPorTranscricao, setAvaliacaoGeradaPorTranscricao] = useState(false);
   const inputMaterialRef = useRef<HTMLInputElement | null>(null);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
@@ -344,6 +362,25 @@ export default function NovaAulaPage() {
           );
           const { total } = await contarComentariosDaAula(aula.id);
           setComentariosCount(total);
+          const { avaliacao, error: avaliacaoError } = await getAvaliacaoDaAula(aula.id);
+
+          if (!avaliacaoError && avaliacao) {
+            setAvaliacaoAtiva(avaliacao.ativa);
+            setTranscricaoAvaliacao(avaliacao.transcricao_base ?? "");
+            setAvaliacaoGeradaPorTranscricao(avaliacao.gerada_por_transcricao);
+            setQuestoesAvaliacao(
+              avaliacao.questoes.map((questao) => ({
+                id: questao.id,
+                pergunta: questao.pergunta,
+                explicacao: questao.explicacao ?? "",
+                alternativas: questao.alternativas.map((alternativa) => ({
+                  id: alternativa.id,
+                  texto: alternativa.texto,
+                  correta: alternativa.correta,
+                })),
+              })),
+            );
+          }
         }
 
         setModulo({
@@ -433,6 +470,139 @@ export default function NovaAulaPage() {
 
   function removerMaterial(id: string) {
     setMateriais((estadoAtual) => estadoAtual.filter((material) => material.id !== id));
+  }
+
+  function criarQuestaoVazia(): QuestaoRascunho {
+    return {
+      id: crypto.randomUUID(),
+      pergunta: "",
+      explicacao: "",
+      alternativas: Array.from({ length: 4 }, (_, index) => ({
+        id: crypto.randomUUID(),
+        texto: "",
+        correta: index === 0,
+      })),
+    };
+  }
+
+  function handleAdicionarQuestao() {
+    setQuestoesAvaliacao((estadoAtual) => [...estadoAtual, criarQuestaoVazia()]);
+  }
+
+  function handleAtualizarQuestao(id: string, campo: "pergunta" | "explicacao", valor: string) {
+    setQuestoesAvaliacao((estadoAtual) =>
+      estadoAtual.map((questao) => (questao.id === id ? { ...questao, [campo]: valor } : questao)),
+    );
+  }
+
+  function handleAtualizarAlternativa(questaoId: string, alternativaId: string, valor: string) {
+    setQuestoesAvaliacao((estadoAtual) =>
+      estadoAtual.map((questao) =>
+        questao.id === questaoId
+          ? {
+              ...questao,
+              alternativas: questao.alternativas.map((alternativa) =>
+                alternativa.id === alternativaId ? { ...alternativa, texto: valor } : alternativa,
+              ),
+            }
+          : questao,
+      ),
+    );
+  }
+
+  function handleDefinirCorreta(questaoId: string, alternativaId: string) {
+    setQuestoesAvaliacao((estadoAtual) =>
+      estadoAtual.map((questao) =>
+        questao.id === questaoId
+          ? {
+              ...questao,
+              alternativas: questao.alternativas.map((alternativa) => ({
+                ...alternativa,
+                correta: alternativa.id === alternativaId,
+              })),
+            }
+          : questao,
+      ),
+    );
+  }
+
+  function handleRemoverQuestao(id: string) {
+    setQuestoesAvaliacao((estadoAtual) => estadoAtual.filter((questao) => questao.id !== id));
+  }
+
+  async function handleArquivoTranscricao(event: ChangeEvent<HTMLInputElement>) {
+    const arquivo = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!arquivo) return;
+
+    try {
+      const conteudo = await arquivo.text();
+      setTranscricaoAvaliacao(conteudo);
+      setMensagem("");
+    } catch {
+      setMensagem("Nao conseguimos ler o arquivo da transcricao agora.");
+    }
+  }
+
+  async function handleGerarQuestoesPorTranscricao() {
+    if (!transcricaoAvaliacao.trim()) {
+      setMensagem("Cole ou envie a transcricao antes de gerar as questoes.");
+      return;
+    }
+
+    setGerandoQuestoes(true);
+    setMensagem("");
+
+    try {
+      const response = await fetch("/api/avaliacoes/gerar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          transcricao: transcricaoAvaliacao,
+          tituloAula,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        error?: string;
+        questoes?: Array<{
+          pergunta: string;
+          explicacao?: string;
+          alternativas: Array<{
+            texto: string;
+            correta: boolean;
+          }>;
+        }>;
+      };
+
+      if (!response.ok || !payload.questoes) {
+        setMensagem(payload.error || "Nao conseguimos gerar as questoes agora.");
+        setGerandoQuestoes(false);
+        return;
+      }
+
+      setQuestoesAvaliacao(
+        payload.questoes.map((questao) => ({
+          id: crypto.randomUUID(),
+          pergunta: questao.pergunta,
+          explicacao: questao.explicacao ?? "",
+          alternativas: questao.alternativas.map((alternativa) => ({
+            id: crypto.randomUUID(),
+            texto: alternativa.texto,
+            correta: alternativa.correta,
+          })),
+        })),
+      );
+      setAvaliacaoAtiva(true);
+      setAvaliacaoGeradaPorTranscricao(true);
+    } catch {
+      setMensagem("Nao conseguimos gerar as questoes agora.");
+    } finally {
+      setGerandoQuestoes(false);
+    }
   }
 
   async function handlePublicarAula() {
@@ -574,6 +744,54 @@ export default function NovaAulaPage() {
       setMensagem("A aula foi criada, mas os materiais nao puderam ser salvos.");
       setPublicandoAula(false);
       return;
+    }
+
+    if (avaliacaoAtiva || questoesAvaliacao.length > 0) {
+      const questoesValidas = questoesAvaliacao.filter((questao) => questao.pergunta.trim());
+
+      if (avaliacaoAtiva && questoesValidas.length === 0) {
+        setMensagem("Adicione pelo menos uma questao para ativar a avaliacao.");
+        setPublicandoAula(false);
+        return;
+      }
+
+      for (const questao of questoesValidas) {
+        const alternativasPreenchidas = questao.alternativas.filter((alternativa) => alternativa.texto.trim());
+
+        if (alternativasPreenchidas.length !== 4) {
+          setMensagem("Cada questao da avaliacao precisa ter 4 alternativas preenchidas.");
+          setPublicandoAula(false);
+          return;
+        }
+
+        if (questao.alternativas.filter((alternativa) => alternativa.correta).length !== 1) {
+          setMensagem("Cada questao precisa ter exatamente 1 alternativa correta.");
+          setPublicandoAula(false);
+          return;
+        }
+      }
+
+      const { error: avaliacaoError } = await salvarAvaliacaoManualDaAula(aula.id, {
+        ativa: avaliacaoAtiva,
+        geradaPorTranscricao: avaliacaoGeradaPorTranscricao,
+        transcricaoBase: transcricaoAvaliacao.trim() || null,
+        questoes: questoesValidas.map((questao, questaoIndex) => ({
+          ordem: questaoIndex + 1,
+          pergunta: questao.pergunta,
+          explicacao: questao.explicacao || null,
+          alternativas: questao.alternativas.map((alternativa, alternativaIndex) => ({
+            ordem: alternativaIndex + 1,
+            texto: alternativa.texto,
+            correta: alternativa.correta,
+          })),
+        })),
+      });
+
+      if (avaliacaoError) {
+        setMensagem("A aula foi salva, mas nao conseguimos salvar a avaliacao agora.");
+        setPublicandoAula(false);
+        return;
+      }
     }
 
     if (deveNotificarNovaAula && modulo?.turma_id) {
@@ -933,6 +1151,160 @@ export default function NovaAulaPage() {
                         </label>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-4 rounded-[18px] border border-slate-200 bg-white px-4 py-4">
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-slate-800">Avaliacao da Aula</span>
+                  <p className="text-xs text-slate-500">
+                    Configure uma miniavaliacao objetiva ao final da aula. O aluno so avanca quando acertar 100%.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-[12px] border border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">Ativar avaliacao</p>
+                    <p className="text-xs text-slate-500">Use apenas em aulas-chave ou no fechamento de um bloco.</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAvaliacaoAtiva((atual) => !atual)}
+                    className={`flex h-7 w-12 items-center rounded-full p-1 transition ${
+                      avaliacaoAtiva ? "bg-[#0e5d77]" : "bg-slate-300"
+                    }`}
+                    aria-label="Alternar avaliacao da aula"
+                  >
+                    <span
+                      className={`h-5 w-5 rounded-full bg-white transition ${avaliacaoAtiva ? "translate-x-5" : ""}`}
+                    />
+                  </button>
+                </div>
+
+                {avaliacaoAtiva ? (
+                  <div className="space-y-4">
+                    <div className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-slate-900">Gerar por transcricao</p>
+                        <p className="text-xs text-slate-500">
+                          Cole a transcricao da aula ou envie um arquivo de texto. As questoes geradas continuam
+                          totalmente editaveis antes de publicar.
+                        </p>
+                      </div>
+
+                      <textarea
+                        value={transcricaoAvaliacao}
+                        onChange={(event) => {
+                          setTranscricaoAvaliacao(event.target.value);
+                          setAvaliacaoGeradaPorTranscricao(false);
+                        }}
+                        rows={8}
+                        placeholder="Cole aqui a transcricao completa da aula"
+                        className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                      />
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+                          <input type="file" accept=".txt,.md,.text" className="hidden" onChange={handleArquivoTranscricao} />
+                          Enviar arquivo
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleGerarQuestoesPorTranscricao()}
+                          disabled={gerandoQuestoes}
+                          className="rounded-[12px] bg-[#0e5d77] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                          {gerandoQuestoes ? "Gerando questoes..." : "Gerar questoes"}
+                        </button>
+                      </div>
+
+                      {avaliacaoGeradaPorTranscricao ? (
+                        <p className="text-xs font-medium text-[#0e5d77]">
+                          Questoes geradas a partir da transcricao. Revise e ajuste antes de publicar.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {questoesAvaliacao.length === 0 ? (
+                      <p className="rounded-[12px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">
+                        Nenhuma questao criada ainda.
+                      </p>
+                    ) : null}
+
+                    {questoesAvaliacao.map((questao, index) => (
+                      <div key={questao.id} className="space-y-3 rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">Questao {index + 1}</p>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverQuestao(questao.id)}
+                            className="text-sm font-medium text-[#b42318]"
+                          >
+                            Remover
+                          </button>
+                        </div>
+
+                        <label className="block space-y-2">
+                          <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Pergunta</span>
+                          <textarea
+                            value={questao.pergunta}
+                            onChange={(event) => handleAtualizarQuestao(questao.id, "pergunta", event.target.value)}
+                            rows={3}
+                            placeholder="Digite uma pergunta objetiva e sem ambiguidade"
+                            className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+
+                        <label className="block space-y-2">
+                          <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Observacao opcional</span>
+                          <input
+                            value={questao.explicacao}
+                            onChange={(event) => handleAtualizarQuestao(questao.id, "explicacao", event.target.value)}
+                            placeholder="Observacao interna opcional"
+                            className="w-full rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                          />
+                        </label>
+
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Alternativas</p>
+                          {questao.alternativas.map((alternativa, alternativaIndex) => (
+                            <div key={alternativa.id} className="flex items-center gap-3 rounded-[12px] border border-slate-200 bg-white px-3 py-3">
+                              <button
+                                type="button"
+                                onClick={() => handleDefinirCorreta(questao.id, alternativa.id)}
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                                  alternativa.correta ? "border-[#0e5d77] bg-[#0e5d77]" : "border-slate-300 bg-white"
+                                }`}
+                                aria-label={`Definir alternativa ${alternativaIndex + 1} como correta`}
+                              >
+                                {alternativa.correta ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
+                              </button>
+
+                              <input
+                                value={alternativa.texto}
+                                onChange={(event) =>
+                                  handleAtualizarAlternativa(questao.id, alternativa.id, event.target.value)
+                                }
+                                placeholder={`Alternativa ${alternativaIndex + 1}`}
+                                className="w-full bg-transparent text-sm outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={handleAdicionarQuestao}
+                      className="flex items-center gap-2 text-sm font-medium text-[#0e5d77]"
+                    >
+                      <SquarePen className="h-4 w-4" />
+                      Adicionar questao
+                    </button>
                   </div>
                 ) : null}
               </div>

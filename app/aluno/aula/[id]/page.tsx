@@ -12,12 +12,19 @@ import {
   Clock3,
   House,
   Send,
+  ShieldCheck,
 } from "lucide-react";
 import AppLoader from "@/components/AppLoader";
 import NotificationBell from "@/components/NotificationBell";
 import { YouTubePlayer } from "@/components/YouTubePlayer";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  finalizarTentativaDaAvaliacao,
+  getStatusDaAvaliacaoDoAlunoNaAula,
+  type AvaliacaoAula,
+} from "@/lib/avaliacoes";
 import { ComentarioAula, criarComentarioDaAula, listarComentariosDaAula } from "@/lib/comentarios";
+import { listarConteudoDaTurmaParaAluno } from "@/lib/aluno-dashboard";
 import {
   aulaEstaDisponivelParaAluno,
   getAulaComModuloTurma,
@@ -100,6 +107,14 @@ export default function AulaAlunoPage() {
   const [comentarios, setComentarios] = useState<ComentarioAula[]>([]);
   const [carregandoComentarios, setCarregandoComentarios] = useState(false);
   const [salvandoComentario, setSalvandoComentario] = useState(false);
+  const [avaliacao, setAvaliacao] = useState<AvaliacaoAula | null>(null);
+  const [avaliacaoAprovada, setAvaliacaoAprovada] = useState(true);
+  const [ultimaNotaAvaliacao, setUltimaNotaAvaliacao] = useState<number | null>(null);
+  const [modalAvaliacaoAberto, setModalAvaliacaoAberto] = useState(false);
+  const [modalConviteAvaliacaoAberto, setModalConviteAvaliacaoAberto] = useState(false);
+  const [respostasAvaliacao, setRespostasAvaliacao] = useState<Record<string, string>>({});
+  const [finalizandoAvaliacao, setFinalizandoAvaliacao] = useState(false);
+  const [mensagemAvaliacao, setMensagemAvaliacao] = useState("");
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
   const storageKey = useMemo(() => (aulaId ? `aula-aluno-cache:${aulaId}` : null), [aulaId]);
@@ -224,11 +239,29 @@ export default function AulaAlunoPage() {
           return;
         }
 
-        const { materiais: materiaisData, error: materiaisError } = await withTimeout(listarMateriaisDaAula(aulaId));
+        const [
+          { materiais: materiaisData, error: materiaisError },
+          { modulos: conteudoTurma, error: conteudoError },
+          { status: statusAvaliacao, error: statusAvaliacaoError },
+        ] = await Promise.all([
+          withTimeout(listarMateriaisDaAula(aulaId)),
+          withTimeout(listarConteudoDaTurmaParaAluno(matricula.turma_id, userId)),
+          withTimeout(getStatusDaAvaliacaoDoAlunoNaAula(aulaId, userId)),
+        ]);
 
-        if (materiaisError) {
-          setMensagem("Nao conseguimos carregar os materiais desta aula agora.");
+        if (materiaisError || conteudoError || statusAvaliacaoError) {
+          setMensagem("Nao conseguimos carregar esta aula por completo agora. Tente novamente.");
           setCarregandoDados(false);
+          return;
+        }
+
+        const aulaNaJornada = conteudoTurma.flatMap((modulo) => modulo.aulas).find((item) => item.id === aulaId);
+
+        if (!aulaNaJornada || aulaNaJornada.bloqueado_por_avaliacao) {
+          if (storageKey && typeof window !== "undefined") {
+            window.sessionStorage.removeItem(storageKey);
+          }
+          router.push("/dashboard");
           return;
         }
 
@@ -238,6 +271,9 @@ export default function AulaAlunoPage() {
         setConcluida(progresso?.concluido ?? false);
         setMateriais(materiaisData);
         setDicaModulo(aula.modulos.titulo);
+        setAvaliacao(statusAvaliacao?.avaliacao ?? null);
+        setAvaliacaoAprovada(statusAvaliacao?.aprovada ?? true);
+        setUltimaNotaAvaliacao(statusAvaliacao?.ultimaNotaPercentual ?? null);
 
         if (storageKey && typeof window !== "undefined") {
           const payload: AulaAlunoCache = {
@@ -300,6 +336,10 @@ export default function AulaAlunoPage() {
 
     setConcluida(valor);
 
+    if (valor && avaliacao && !avaliacaoAprovada) {
+      setModalConviteAvaliacaoAberto(true);
+    }
+
     if (storageKey && typeof window !== "undefined") {
       const cached = window.sessionStorage.getItem(storageKey);
       if (cached) {
@@ -314,6 +354,56 @@ export default function AulaAlunoPage() {
     }
 
     setSalvandoConclusao(false);
+  }
+
+  function resetarTentativaAvaliacao() {
+    setRespostasAvaliacao({});
+    setMensagemAvaliacao("");
+    setModalAvaliacaoAberto(false);
+  }
+
+  function abrirAvaliacao() {
+    setMensagemAvaliacao("");
+    setRespostasAvaliacao({});
+    setModalConviteAvaliacaoAberto(false);
+    setModalAvaliacaoAberto(true);
+  }
+
+  async function handleFinalizarAvaliacao() {
+    if (!user || !aulaId || !avaliacao) return;
+
+    setFinalizandoAvaliacao(true);
+    setMensagemAvaliacao("");
+
+    const respostas = avaliacao.questoes.map((questao) => ({
+      questaoId: questao.id,
+      alternativaId: respostasAvaliacao[questao.id] ?? "",
+    }));
+
+    const { resultado, error } = await finalizarTentativaDaAvaliacao(aulaId, user.id, respostas);
+
+    if (error || !resultado) {
+      setMensagemAvaliacao(error?.message || "Nao conseguimos finalizar a avaliacao agora.");
+      setFinalizandoAvaliacao(false);
+      return;
+    }
+
+    if (!resultado.aprovado) {
+      setUltimaNotaAvaliacao(resultado.notaPercentual);
+      setMensagemAvaliacao(
+        `Voce acertou ${resultado.acertos} de ${resultado.total}. Para avancar, voce precisa acertar 100%.`,
+      );
+      setRespostasAvaliacao({});
+      setFinalizandoAvaliacao(false);
+      return;
+    }
+
+    setAvaliacaoAprovada(true);
+    setUltimaNotaAvaliacao(resultado.notaPercentual);
+    setMensagemAvaliacao("");
+    setModalAvaliacaoAberto(false);
+    setRespostasAvaliacao({});
+    setFinalizandoAvaliacao(false);
   }
 
   async function handleEnviarComentario() {
@@ -428,6 +518,27 @@ export default function AulaAlunoPage() {
               <span>Marcar aula como Concluida</span>
               <CheckCircle2 className="h-5 w-5" strokeWidth={2.4} />
             </button>
+
+            {avaliacao && !avaliacaoAprovada ? (
+              <button
+                type="button"
+                onClick={abrirAvaliacao}
+                className="flex items-center justify-center gap-2 rounded-[10px] bg-[#1f9d55] px-5 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(31,157,85,0.25)]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Fazer avaliacao
+              </button>
+            ) : null}
+
+            {avaliacao && avaliacaoAprovada ? (
+              <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                Avaliacao concluida com sucesso.
+              </div>
+            ) : null}
+
+            {avaliacao && !avaliacaoAprovada && ultimaNotaAvaliacao !== null ? (
+              <p className="text-sm text-slate-500">Sua ultima nota nesta avaliacao foi {ultimaNotaAvaliacao}%.</p>
+            ) : null}
 
             {duracaoTexto ? (
               <div className="flex items-center gap-1 text-xs text-slate-400">
@@ -558,6 +669,116 @@ export default function AulaAlunoPage() {
           </section>
         )}
       </div>
+
+      {modalConviteAvaliacaoAberto ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/45 px-4">
+          <div className="w-full max-w-sm rounded-[24px] bg-white px-6 py-6 shadow-[0_24px_80px_rgba(15,23,42,0.28)]">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#1f9d55]">Avaliacao disponivel</p>
+              <h3 className="text-2xl font-semibold text-slate-900">Agora falta concluir sua avaliacao</h3>
+              <p className="text-sm leading-6 text-slate-600">
+                Para desbloquear a proxima aula, voce precisa acertar 100% da miniavaliacao desta aula.
+              </p>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setModalConviteAvaliacaoAberto(false)}
+                className="flex-1 rounded-[12px] border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600"
+              >
+                Depois
+              </button>
+              <button
+                type="button"
+                onClick={abrirAvaliacao}
+                className="flex-1 rounded-[12px] bg-[#1f9d55] px-4 py-3 text-sm font-semibold text-white"
+              >
+                Fazer avaliacao agora
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {modalAvaliacaoAberto && avaliacao ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 px-4">
+          <div className="w-full max-w-md rounded-[28px] bg-white px-5 py-6 shadow-[0_24px_80px_rgba(15,23,42,0.3)]">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#1f9d55]">Miniavaliacao</p>
+              <h3 className="text-2xl font-semibold text-slate-900">{tituloAula}</h3>
+              <p className="text-sm leading-6 text-slate-600">
+                Responda todas as questoes. Se voce sair desta tela, a tentativa sera zerada.
+              </p>
+            </div>
+
+            <div className="mt-5 max-h-[54vh] space-y-4 overflow-y-auto pr-1">
+              {avaliacao.questoes.map((questao, index) => (
+                <div key={questao.id} className="rounded-[18px] border border-slate-200 px-4 py-4">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {index + 1}. {questao.pergunta}
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {questao.alternativas.map((alternativa) => {
+                      const selecionada = respostasAvaliacao[questao.id] === alternativa.id;
+
+                      return (
+                        <button
+                          key={alternativa.id}
+                          type="button"
+                          onClick={() =>
+                            setRespostasAvaliacao((estadoAtual) => ({
+                              ...estadoAtual,
+                              [questao.id]: alternativa.id,
+                            }))
+                          }
+                          className={`flex w-full items-center gap-3 rounded-[14px] border px-4 py-3 text-left text-sm transition ${
+                            selecionada
+                              ? "border-[#1f9d55] bg-emerald-50 text-emerald-800"
+                              : "border-slate-200 bg-white text-slate-700"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${
+                              selecionada ? "border-[#1f9d55] bg-[#1f9d55] text-white" : "border-slate-300 text-slate-500"
+                            }`}
+                          >
+                            {String.fromCharCode(64 + alternativa.ordem)}
+                          </span>
+                          <span>{alternativa.texto}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {mensagemAvaliacao ? (
+              <p className="mt-4 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {mensagemAvaliacao}
+              </p>
+            ) : null}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={resetarTentativaAvaliacao}
+                className="flex-1 rounded-[12px] border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600"
+              >
+                Sair
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFinalizarAvaliacao()}
+                disabled={finalizandoAvaliacao}
+                className="flex-1 rounded-[12px] bg-[#1f9d55] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {finalizandoAvaliacao ? "Finalizando..." : "Finalizar avaliacao"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white px-3 py-3">
         <div className="mx-auto flex max-w-md items-center justify-between">

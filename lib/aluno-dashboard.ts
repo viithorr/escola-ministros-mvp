@@ -1,4 +1,5 @@
 import { aulaEstaDisponivelParaAluno } from "@/lib/aulas";
+import { listarStatusDasAvaliacoesDoAlunoPorAulas } from "@/lib/avaliacoes";
 import { supabase } from "@/lib/supabase";
 
 export type AulaAlunoDashboard = {
@@ -16,6 +17,9 @@ export type AulaAlunoDashboard = {
   conta_no_progresso: boolean;
   created_at: string;
   concluido: boolean;
+  tem_avaliacao_ativa: boolean;
+  avaliacao_aprovada: boolean;
+  bloqueado_por_avaliacao: boolean;
 };
 
 export type ModuloAlunoDashboard = {
@@ -134,6 +138,57 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     );
   }
 
+  const aulasDisponiveisOrdenadas = ((data as ModuloAlunoDashboard[] | null) ?? []).flatMap((modulo) =>
+    [...(modulo.aulas ?? [])]
+      .filter((aula) => aulaEstaDisponivelParaAluno(aula))
+      .sort((a, b) => {
+        const ordemA = a.ordem ?? 0;
+        const ordemB = b.ordem ?? 0;
+        if (ordemA !== ordemB) return ordemA - ordemB;
+        return a.created_at.localeCompare(b.created_at);
+      })
+      .map((aula) => ({
+        ...aula,
+        modulo_id: modulo.id,
+      })),
+  );
+
+  const { statusPorAula, error: statusAvaliacoesError } = await listarStatusDasAvaliacoesDoAlunoPorAulas(
+    aulasDisponiveisOrdenadas.map((aula) => aula.id),
+    usuarioId,
+  );
+
+  if (statusAvaliacoesError) {
+    return { modulos: [] as ModuloAlunoDashboard[], error: statusAvaliacoesError };
+  }
+
+  let bloquearProximas = false;
+  const metadadosPorAula = new Map<
+    string,
+    {
+      tem_avaliacao_ativa: boolean;
+      avaliacao_aprovada: boolean;
+      bloqueado_por_avaliacao: boolean;
+    }
+  >();
+
+  aulasDisponiveisOrdenadas.forEach((aula) => {
+    const statusAvaliacao = statusPorAula.get(aula.id) ?? {
+      temAvaliacaoAtiva: false,
+      aprovada: true,
+    };
+
+    metadadosPorAula.set(aula.id, {
+      tem_avaliacao_ativa: statusAvaliacao.temAvaliacaoAtiva,
+      avaliacao_aprovada: statusAvaliacao.aprovada,
+      bloqueado_por_avaliacao: bloquearProximas,
+    });
+
+    if (statusAvaliacao.temAvaliacaoAtiva && !statusAvaliacao.aprovada) {
+      bloquearProximas = true;
+    }
+  });
+
   const modulos = ((data as ModuloAlunoDashboard[] | null) ?? [])
     .map((modulo) => ({
       ...modulo,
@@ -145,10 +200,17 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
           if (ordemA !== ordemB) return ordemA - ordemB;
           return a.created_at.localeCompare(b.created_at);
         })
-        .map((aula) => ({
-          ...aula,
-          concluido: progressoPorAula.get(aula.id) ?? false,
-        })),
+        .map((aula) => {
+          const meta = metadadosPorAula.get(aula.id);
+
+          return {
+            ...aula,
+            concluido: progressoPorAula.get(aula.id) ?? false,
+            tem_avaliacao_ativa: meta?.tem_avaliacao_ativa ?? false,
+            avaliacao_aprovada: meta?.avaliacao_aprovada ?? true,
+            bloqueado_por_avaliacao: meta?.bloqueado_por_avaliacao ?? false,
+          };
+        }),
     }))
     .filter((modulo) => modulo.aulas.length > 0);
 
