@@ -519,7 +519,7 @@ export default function AulaAlunoPage() {
               <CheckCircle2 className="h-5 w-5" strokeWidth={2.4} />
             </button>
 
-            {avaliacao && !avaliacaoAprovada ? (
+            {avaliacao && concluida && !avaliacaoAprovada ? (
               <button
                 type="button"
                 onClick={abrirAvaliacao}
@@ -536,7 +536,7 @@ export default function AulaAlunoPage() {
               </div>
             ) : null}
 
-            {avaliacao && !avaliacaoAprovada && ultimaNotaAvaliacao !== null ? (
+            {avaliacao && concluida && !avaliacaoAprovada && ultimaNotaAvaliacao !== null ? (
               <p className="text-sm text-slate-500">Sua ultima nota nesta avaliacao foi {ultimaNotaAvaliacao}%.</p>
             ) : null}
 
@@ -676,10 +676,12 @@ export default function AulaAlunoPage() {
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#1f9d55]">Avaliacao disponivel</p>
               <h3 className="text-2xl font-semibold text-slate-900">Agora falta concluir sua avaliacao</h3>
-              <p className="text-sm leading-6 text-slate-600">
-                Para desbloquear a proxima aula, voce precisa acertar 100% da miniavaliacao desta aula.
-              </p>
-            </div>
+                <p className="text-sm leading-6 text-slate-600">
+                  {avaliacao?.exigir_aprovacao_para_avancar
+                    ? "Para desbloquear a proxima aula, voce precisa acertar 100% da miniavaliacao desta aula."
+                    : "Sua miniavaliacao desta aula ja esta disponivel para voce responder agora ou depois."}
+                </p>
+              </div>
             <div className="mt-6 flex gap-3">
               <button
                 type="button"

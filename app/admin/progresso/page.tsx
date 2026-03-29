@@ -3,12 +3,13 @@
 import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
+import { CalendarDays, ChartPie, CircleUserRound, FileQuestion, House } from "lucide-react";
 import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { listarProgressoDosAlunosDaTurma, type AlunoProgressoTurma } from "@/lib/atividade-aula";
+import { listarAvaliacoesDaTurma, type AvaliacaoResumoTurma } from "@/lib/avaliacoes-admin";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
-import { getTurmaById, listarTurmas, type TurmaAdmin } from "@/lib/turmas";
+import { listarTurmas, type TurmaAdmin } from "@/lib/turmas";
 import { isValidUserRole, type UsuarioProfile } from "@/lib/usuarios";
 
 function getIniciais(profile: UsuarioProfile | null) {
@@ -48,6 +49,8 @@ function AdminProgressoPageContent() {
   const [turma, setTurma] = useState<TurmaAdmin | null>(null);
   const [turmas, setTurmas] = useState<TurmaAdmin[]>([]);
   const [alunos, setAlunos] = useState<AlunoProgressoTurma[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoResumoTurma[]>([]);
+  const [abaSelecionada, setAbaSelecionada] = useState<"aulas" | "avaliacoes">("aulas");
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
 
@@ -108,12 +111,14 @@ function AdminProgressoPageContent() {
           return;
         }
 
-        const [{ turma: turmaData, error: turmaError }, { alunos: alunosData, error: alunosError }] = await Promise.all([
-          withTimeout(getTurmaById(turmaIdSelecionada)),
+        const turmaData = turmasData.find((item) => item.id === turmaIdSelecionada) ?? null;
+
+        const [{ alunos: alunosData, error: alunosError }, { avaliacoes: avaliacoesData, error: avaliacoesError }] = await Promise.all([
           withTimeout(listarProgressoDosAlunosDaTurma(turmaIdSelecionada)),
+          withTimeout(listarAvaliacoesDaTurma(turmaIdSelecionada)),
         ]);
 
-        if (turmaError || !turmaData) {
+        if (!turmaData) {
           setMensagem("Nao conseguimos carregar esta turma agora. Tente novamente.");
           setCarregandoDados(false);
           return;
@@ -125,8 +130,15 @@ function AdminProgressoPageContent() {
           return;
         }
 
+        if (avaliacoesError) {
+          setMensagem("Nao conseguimos carregar as avaliacoes desta turma agora.");
+          setCarregandoDados(false);
+          return;
+        }
+
         setTurma(turmaData);
         setAlunos(alunosData);
+        setAvaliacoes(avaliacoesData);
       } catch (error) {
         setMensagem(
           error instanceof RequestTimeoutError
@@ -268,54 +280,142 @@ function AdminProgressoPageContent() {
                 Ver outra turma
               </button>
 
-              <p className="text-[0.72rem] text-[#d8d8d8]">Todos</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAbaSelecionada("aulas")}
+                  className={`rounded-[12px] px-4 py-3 text-sm font-semibold transition ${
+                    abaSelecionada === "aulas" ? "bg-[#0e5d77] text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  Aulas
+                </button>
 
-              {alunos.length === 0 ? (
-                <p className="rounded-[12px] bg-slate-100 px-4 py-6 text-sm text-slate-500">
-                  Nenhum aluno vinculado a esta turma ainda.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setAbaSelecionada("avaliacoes")}
+                  className={`rounded-[12px] px-4 py-3 text-sm font-semibold transition ${
+                    abaSelecionada === "avaliacoes" ? "bg-[#0e5d77] text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  Avaliacoes
+                </button>
+              </div>
+
+              {abaSelecionada === "aulas" ? (
+                <>
+                  <p className="text-[0.72rem] text-[#d8d8d8]">Todos</p>
+
+                  {alunos.length === 0 ? (
+                    <p className="rounded-[12px] bg-slate-100 px-4 py-6 text-sm text-slate-500">
+                      Nenhum aluno vinculado a esta turma ainda.
+                    </p>
+                  ) : (
+                    <div className="space-y-6 pt-1">
+                      {alunos.map((aluno) => (
+                        <button
+                          key={aluno.usuario_id}
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              turmaIdSelecionada
+                                ? `/admin/progresso/aluno/${aluno.usuario_id}?turma=${turmaIdSelecionada}`
+                                : "/admin/progresso",
+                            )
+                          }
+                          className="flex w-full items-center justify-between gap-4 text-left"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
+                              {aluno.foto_url ? (
+                                <Image
+                                  src={aluno.foto_url}
+                                  alt={aluno.nome || "Foto do aluno"}
+                                  width={44}
+                                  height={44}
+                                  className="h-full w-full object-cover"
+                                  unoptimized
+                                />
+                              ) : (
+                                getIniciaisAluno(aluno)
+                              )}
+                            </div>
+
+                            <p className="truncate text-[1rem] font-medium text-slate-900">
+                              {aluno.nome || aluno.email}
+                            </p>
+                          </div>
+
+                          <div className="shrink-0 pr-1 text-right">
+                            <p className="text-[11px] text-slate-300">Progresso de</p>
+                            <p className="text-[0.82rem] font-medium text-slate-300">{aluno.progresso_percentual}%</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="space-y-6 pt-1">
-                  {alunos.map((aluno) => (
-                    <button
-                      key={aluno.usuario_id}
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          turmaIdSelecionada
-                            ? `/admin/progresso/aluno/${aluno.usuario_id}?turma=${turmaIdSelecionada}`
-                            : "/admin/progresso",
-                        )
-                      }
-                      className="flex w-full items-center justify-between gap-4 text-left"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
-                          {aluno.foto_url ? (
-                            <Image
-                              src={aluno.foto_url}
-                              alt={aluno.nome || "Foto do aluno"}
-                              width={44}
-                              height={44}
-                              className="h-full w-full object-cover"
-                              unoptimized
-                            />
-                          ) : (
-                            getIniciaisAluno(aluno)
-                          )}
+                <div className="space-y-4 pt-1">
+                  <p className="text-[0.72rem] text-[#d8d8d8]">Avaliacoes da turma</p>
+
+                  {avaliacoes.length === 0 ? (
+                    <p className="rounded-[12px] bg-slate-100 px-4 py-6 text-sm text-slate-500">
+                      Nenhuma aula com avaliacao ativa nesta turma ainda.
+                    </p>
+                  ) : (
+                    avaliacoes.map((avaliacao) => (
+                      <button
+                        key={avaliacao.avaliacao_id}
+                        type="button"
+                        onClick={() =>
+                          router.push(
+                            turmaIdSelecionada
+                              ? `/admin/progresso/avaliacao/${avaliacao.avaliacao_id}?turma=${turmaIdSelecionada}`
+                              : "/admin/progresso",
+                          )
+                        }
+                        className="w-full rounded-[16px] bg-white px-4 py-4 text-left shadow-[0_2px_14px_rgba(15,23,42,0.08)]"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#e7f1f6] text-[#0e5d77]">
+                            <FileQuestion className="h-5 w-5" />
+                          </div>
+
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <div>
+                              <p className="truncate text-[1rem] font-semibold text-slate-900">{avaliacao.aula_titulo}</p>
+                              <p className="text-xs text-slate-400">
+                                {avaliacao.modulo_titulo || "Sem modulo"} • {avaliacao.total_alunos} alunos
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                              <div className="rounded-[10px] bg-slate-50 px-2 py-2">
+                                <p className="text-[10px] uppercase tracking-[0.08em] text-slate-400">Fizeram</p>
+                                <p className="text-sm font-semibold text-slate-900">{avaliacao.fizeram}</p>
+                              </div>
+                              <div className="rounded-[10px] bg-[#e9f7ef] px-2 py-2">
+                                <p className="text-[10px] uppercase tracking-[0.08em] text-[#5b9776]">100%</p>
+                                <p className="text-sm font-semibold text-[#11566C]">{avaliacao.aprovados}</p>
+                              </div>
+                              <div className="rounded-[10px] bg-[#fbeaea] px-2 py-2">
+                                <p className="text-[10px] uppercase tracking-[0.08em] text-[#b05d5d]">Pendentes</p>
+                                <p className="text-sm font-semibold text-[#990303]">{avaliacao.pendentes}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs text-slate-400">
+                              <span>
+                                Media: {avaliacao.media_ultima_nota !== null ? `${avaliacao.media_ultima_nota}%` : "--"}
+                              </span>
+                              <span>{avaliacao.total_tentativas} tentativas</span>
+                            </div>
+                          </div>
                         </div>
-
-                        <p className="truncate text-[1rem] font-medium text-slate-900">
-                          {aluno.nome || aluno.email}
-                        </p>
-                      </div>
-
-                      <div className="shrink-0 pr-1 text-right">
-                        <p className="text-[11px] text-slate-300">Progresso de</p>
-                        <p className="text-[0.82rem] font-medium text-slate-300">{aluno.progresso_percentual}%</p>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </>

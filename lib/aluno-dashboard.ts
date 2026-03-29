@@ -18,6 +18,7 @@ export type AulaAlunoDashboard = {
   created_at: string;
   concluido: boolean;
   tem_avaliacao_ativa: boolean;
+  avaliacao_exige_aprovacao: boolean;
   avaliacao_aprovada: boolean;
   bloqueado_por_avaliacao: boolean;
 };
@@ -167,6 +168,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     string,
     {
       tem_avaliacao_ativa: boolean;
+      avaliacao_exige_aprovacao: boolean;
       avaliacao_aprovada: boolean;
       bloqueado_por_avaliacao: boolean;
     }
@@ -175,16 +177,22 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
   aulasDisponiveisOrdenadas.forEach((aula) => {
     const statusAvaliacao = statusPorAula.get(aula.id) ?? {
       temAvaliacaoAtiva: false,
+      exigeAprovacaoParaAvancar: false,
       aprovada: true,
     };
 
     metadadosPorAula.set(aula.id, {
       tem_avaliacao_ativa: statusAvaliacao.temAvaliacaoAtiva,
+      avaliacao_exige_aprovacao: statusAvaliacao.exigeAprovacaoParaAvancar,
       avaliacao_aprovada: statusAvaliacao.aprovada,
       bloqueado_por_avaliacao: bloquearProximas,
     });
 
-    if (statusAvaliacao.temAvaliacaoAtiva && !statusAvaliacao.aprovada) {
+    if (
+      statusAvaliacao.temAvaliacaoAtiva &&
+      statusAvaliacao.exigeAprovacaoParaAvancar &&
+      !statusAvaliacao.aprovada
+    ) {
       bloquearProximas = true;
     }
   });
@@ -207,6 +215,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
             ...aula,
             concluido: progressoPorAula.get(aula.id) ?? false,
             tem_avaliacao_ativa: meta?.tem_avaliacao_ativa ?? false,
+            avaliacao_exige_aprovacao: meta?.avaliacao_exige_aprovacao ?? false,
             avaliacao_aprovada: meta?.avaliacao_aprovada ?? true,
             bloqueado_por_avaliacao: meta?.bloqueado_por_avaliacao ?? false,
           };

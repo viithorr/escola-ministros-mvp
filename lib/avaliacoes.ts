@@ -21,6 +21,7 @@ export type AvaliacaoAula = {
   id: string;
   aula_id: string;
   ativa: boolean;
+  exigir_aprovacao_para_avancar: boolean;
   gerada_por_transcricao: boolean;
   transcricao_base: string | null;
   publicada_em: string | null;
@@ -31,6 +32,7 @@ export type AvaliacaoAula = {
 export type StatusAvaliacaoAluno = {
   avaliacao: AvaliacaoAula | null;
   temAvaliacaoAtiva: boolean;
+  exigeAprovacaoParaAvancar: boolean;
   aprovada: boolean;
   ultimaNotaPercentual: number | null;
   tentativas: number;
@@ -56,10 +58,83 @@ export type QuestaoAvaliacaoPayload = {
   }>;
 };
 
+export function importarQuestoesDeTextoFormatado(texto: string) {
+  const conteudo = texto.replace(/\r/g, "").trim();
+
+  if (!conteudo) {
+    return {
+      questoes: [] as Array<{
+        pergunta: string;
+        explicacao: string;
+        alternativas: Array<{ texto: string; correta: boolean }>;
+      }>,
+      error: "Cole o texto das questoes antes de importar.",
+    };
+  }
+
+  const blocos = conteudo
+    .split(/\n\s*\n(?=Pergunta:)/i)
+    .map((bloco) => bloco.trim())
+    .filter(Boolean);
+
+  const questoes = blocos.map((bloco) => {
+    const linhas = bloco
+      .split("\n")
+      .map((linha) => linha.trim())
+      .filter(Boolean);
+
+    const perguntaLinha = linhas.find((linha) => /^Pergunta:/i.test(linha));
+    const corretaLinha = linhas.find((linha) => /^Correta:/i.test(linha));
+    const alternativas = ["A", "B", "C", "D"].map((letra) => {
+      const linha = linhas.find((item) => new RegExp(`^${letra}\\)`, "i").test(item));
+      return {
+        letra,
+        texto: linha?.replace(new RegExp(`^${letra}\\)\\s*`, "i"), "").trim() ?? "",
+      };
+    });
+
+    const correta = corretaLinha?.replace(/^Correta:\s*/i, "").trim().toUpperCase() ?? "";
+
+    return {
+      pergunta: perguntaLinha?.replace(/^Pergunta:\s*/i, "").trim() ?? "",
+      explicacao: "",
+      alternativas: alternativas.map((alternativa) => ({
+        texto: alternativa.texto,
+        correta: alternativa.letra === correta,
+      })),
+    };
+  });
+
+  const invalida =
+    questoes.length === 0 ||
+    questoes.some((questao) => {
+      const preenchidas = questao.alternativas.filter((alternativa) => alternativa.texto).length;
+      const corretas = questao.alternativas.filter((alternativa) => alternativa.correta).length;
+      return !questao.pergunta || preenchidas !== 4 || corretas !== 1;
+    });
+
+  if (invalida) {
+    return {
+      questoes: [] as Array<{
+        pergunta: string;
+        explicacao: string;
+        alternativas: Array<{ texto: string; correta: boolean }>;
+      }>,
+      error:
+        "Formato invalido. Use: Pergunta:, A), B), C), D) e Correta: A/B/C/D em cada bloco.",
+    };
+  }
+
+  return {
+    questoes,
+    error: null,
+  };
+}
+
 export async function getAvaliacaoDaAula(aulaId: string) {
   const { data: avaliacao, error: avaliacaoError } = await supabase
     .from("avaliacoes_aula")
-    .select("id, aula_id, ativa, gerada_por_transcricao, transcricao_base, publicada_em, created_at")
+    .select("id, aula_id, ativa, exigir_aprovacao_para_avancar, gerada_por_transcricao, transcricao_base, publicada_em, created_at")
     .eq("aula_id", aulaId)
     .maybeSingle<AvaliacaoAulaRow>();
 
@@ -116,6 +191,7 @@ export async function salvarAvaliacaoManualDaAula(
   aulaId: string,
   payload: {
     ativa: boolean;
+    exigirAprovacaoParaAvancar?: boolean;
     questoes: QuestaoAvaliacaoPayload[];
     geradaPorTranscricao?: boolean;
     transcricaoBase?: string | null;
@@ -139,6 +215,7 @@ export async function salvarAvaliacaoManualDaAula(
       .insert({
         aula_id: aulaId,
         ativa: payload.ativa,
+        exigir_aprovacao_para_avancar: payload.exigirAprovacaoParaAvancar ?? true,
         gerada_por_transcricao: payload.geradaPorTranscricao ?? false,
         transcricao_base: payload.transcricaoBase ?? null,
         publicada_em: payload.ativa ? new Date().toISOString() : null,
@@ -156,6 +233,7 @@ export async function salvarAvaliacaoManualDaAula(
       .from("avaliacoes_aula")
       .update({
         ativa: payload.ativa,
+        exigir_aprovacao_para_avancar: payload.exigirAprovacaoParaAvancar ?? true,
         gerada_por_transcricao: payload.geradaPorTranscricao ?? false,
         transcricao_base: payload.transcricaoBase ?? null,
         publicada_em: payload.ativa ? new Date().toISOString() : null,
@@ -235,11 +313,12 @@ export async function getStatusDaAvaliacaoDoAlunoNaAula(aulaId: string, usuarioI
   if (!avaliacao || !avaliacao.ativa) {
     return {
       status: {
-        avaliacao: null,
-        temAvaliacaoAtiva: false,
-        aprovada: true,
-        ultimaNotaPercentual: null,
-        tentativas: 0,
+          avaliacao: null,
+          temAvaliacaoAtiva: false,
+          exigeAprovacaoParaAvancar: false,
+          aprovada: true,
+          ultimaNotaPercentual: null,
+          tentativas: 0,
       },
       error: null,
     };
@@ -263,12 +342,13 @@ export async function getStatusDaAvaliacaoDoAlunoNaAula(aulaId: string, usuarioI
     ((tentativas as { nota_percentual: number; acertou_tudo: boolean; finalizada_em: string }[] | null) ?? []);
 
   return {
-    status: {
-      avaliacao,
-      temAvaliacaoAtiva: true,
-      aprovada: listaTentativas.some((tentativa) => tentativa.acertou_tudo),
-      ultimaNotaPercentual: listaTentativas[0]?.nota_percentual ?? null,
-      tentativas: listaTentativas.length,
+      status: {
+        avaliacao,
+        temAvaliacaoAtiva: true,
+        exigeAprovacaoParaAvancar: avaliacao.exigir_aprovacao_para_avancar,
+        aprovada: listaTentativas.some((tentativa) => tentativa.acertou_tudo),
+        ultimaNotaPercentual: listaTentativas[0]?.nota_percentual ?? null,
+        tentativas: listaTentativas.length,
     },
     error: null,
   };
@@ -281,6 +361,7 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
         string,
         {
           temAvaliacaoAtiva: boolean;
+          exigeAprovacaoParaAvancar: boolean;
           aprovada: boolean;
         }
       >(),
@@ -290,7 +371,7 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
 
   const { data: avaliacoes, error: avaliacoesError } = await supabase
     .from("avaliacoes_aula")
-    .select("id, aula_id, ativa")
+    .select("id, aula_id, ativa, exigir_aprovacao_para_avancar")
     .in("aula_id", aulaIds)
     .eq("ativa", true);
 
@@ -300,6 +381,7 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
         string,
         {
           temAvaliacaoAtiva: boolean;
+          exigeAprovacaoParaAvancar: boolean;
           aprovada: boolean;
         }
       >(),
@@ -308,17 +390,27 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
   }
 
   const avaliacoesAtivas =
-    ((avaliacoes as { id: string; aula_id: string; ativa: boolean }[] | null) ?? []).filter((item) => item.ativa);
+    ((avaliacoes as {
+      id: string;
+      aula_id: string;
+      ativa: boolean;
+      exigir_aprovacao_para_avancar: boolean;
+    }[] | null) ?? []).filter((item) => item.ativa);
   const statusPorAula = new Map<
     string,
     {
       temAvaliacaoAtiva: boolean;
+      exigeAprovacaoParaAvancar: boolean;
       aprovada: boolean;
     }
   >();
 
   avaliacoesAtivas.forEach((avaliacao) => {
-    statusPorAula.set(avaliacao.aula_id, { temAvaliacaoAtiva: true, aprovada: false });
+    statusPorAula.set(avaliacao.aula_id, {
+      temAvaliacaoAtiva: true,
+      exigeAprovacaoParaAvancar: avaliacao.exigir_aprovacao_para_avancar,
+      aprovada: false,
+    });
   });
 
   if (avaliacoesAtivas.length === 0) {
@@ -340,6 +432,7 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
         string,
         {
           temAvaliacaoAtiva: boolean;
+          exigeAprovacaoParaAvancar: boolean;
           aprovada: boolean;
         }
       >(),
@@ -354,6 +447,7 @@ export async function listarStatusDasAvaliacoesDoAlunoPorAulas(aulaIds: string[]
   avaliacoesAtivas.forEach((avaliacao) => {
     statusPorAula.set(avaliacao.aula_id, {
       temAvaliacaoAtiva: true,
+      exigeAprovacaoParaAvancar: avaliacao.exigir_aprovacao_para_avancar,
       aprovada: aprovadasPorAvaliacao.has(avaliacao.id),
     });
   });
