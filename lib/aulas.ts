@@ -46,23 +46,36 @@ export type AulaComModuloTurma = AulaModulo & {
   } | null;
 };
 
-export function aulaEstaDisponivelParaAluno(
+export function aulaJaFoiPublicadaParaAluno(
   aula: Pick<AulaModulo, "publicado" | "data_publicacao" | "data_fechamento">,
   now = new Date(),
 ) {
   const timestampAtual = now.getTime();
-  const publicada =
-    aula.publicado || (aula.data_publicacao ? new Date(aula.data_publicacao).getTime() <= timestampAtual : false);
+  return aula.publicado || (aula.data_publicacao ? new Date(aula.data_publicacao).getTime() <= timestampAtual : false);
+}
+
+export function aulaPrazoExpiradoParaAluno(
+  aula: Pick<AulaModulo, "data_fechamento">,
+  now = new Date(),
+) {
+  if (!aula.data_fechamento) {
+    return false;
+  }
+
+  return new Date(aula.data_fechamento).getTime() < now.getTime();
+}
+
+export function aulaEstaDisponivelParaAluno(
+  aula: Pick<AulaModulo, "publicado" | "data_publicacao" | "data_fechamento">,
+  now = new Date(),
+) {
+  const publicada = aulaJaFoiPublicadaParaAluno(aula, now);
 
   if (!publicada) {
     return false;
   }
 
-  if (!aula.data_fechamento) {
-    return true;
-  }
-
-  return new Date(aula.data_fechamento).getTime() >= timestampAtual;
+  return !aulaPrazoExpiradoParaAluno(aula, now);
 }
 
 function getExtensao(file: File, fallback: string) {

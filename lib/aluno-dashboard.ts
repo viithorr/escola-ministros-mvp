@@ -1,4 +1,4 @@
-import { aulaEstaDisponivelParaAluno } from "@/lib/aulas";
+import { aulaJaFoiPublicadaParaAluno, aulaPrazoExpiradoParaAluno } from "@/lib/aulas";
 import { listarStatusDasAvaliacoesDoAlunoPorAulas } from "@/lib/avaliacoes";
 import { supabase } from "@/lib/supabase";
 
@@ -20,6 +20,7 @@ export type AulaAlunoDashboard = {
   tem_avaliacao_ativa: boolean;
   avaliacao_exige_aprovacao: boolean;
   avaliacao_aprovada: boolean;
+  bloqueado_por_prazo: boolean;
   bloqueado_por_avaliacao: boolean;
 };
 
@@ -139,9 +140,9 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     );
   }
 
-  const aulasDisponiveisOrdenadas = ((data as ModuloAlunoDashboard[] | null) ?? []).flatMap((modulo) =>
+  const aulasPublicadasOrdenadas = ((data as ModuloAlunoDashboard[] | null) ?? []).flatMap((modulo) =>
     [...(modulo.aulas ?? [])]
-      .filter((aula) => aulaEstaDisponivelParaAluno(aula))
+      .filter((aula) => aulaJaFoiPublicadaParaAluno(aula))
       .sort((a, b) => {
         const ordemA = a.ordem ?? 0;
         const ordemB = b.ordem ?? 0;
@@ -155,7 +156,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
   );
 
   const { statusPorAula, error: statusAvaliacoesError } = await listarStatusDasAvaliacoesDoAlunoPorAulas(
-    aulasDisponiveisOrdenadas.map((aula) => aula.id),
+    aulasPublicadasOrdenadas.map((aula) => aula.id),
     usuarioId,
   );
 
@@ -174,7 +175,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     }
   >();
 
-  aulasDisponiveisOrdenadas.forEach((aula) => {
+  aulasPublicadasOrdenadas.forEach((aula) => {
     const statusAvaliacao = statusPorAula.get(aula.id) ?? {
       temAvaliacaoAtiva: false,
       exigeAprovacaoParaAvancar: false,
@@ -201,7 +202,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     .map((modulo) => ({
       ...modulo,
       aulas: [...(modulo.aulas ?? [])]
-        .filter((aula) => aulaEstaDisponivelParaAluno(aula))
+        .filter((aula) => aulaJaFoiPublicadaParaAluno(aula))
         .sort((a, b) => {
           const ordemA = a.ordem ?? 0;
           const ordemB = b.ordem ?? 0;
@@ -217,6 +218,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
             tem_avaliacao_ativa: meta?.tem_avaliacao_ativa ?? false,
             avaliacao_exige_aprovacao: meta?.avaliacao_exige_aprovacao ?? false,
             avaliacao_aprovada: meta?.avaliacao_aprovada ?? true,
+            bloqueado_por_prazo: aulaPrazoExpiradoParaAluno(aula),
             bloqueado_por_avaliacao: meta?.bloqueado_por_avaliacao ?? false,
           };
         }),
