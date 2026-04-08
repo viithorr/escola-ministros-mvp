@@ -8,7 +8,6 @@ import AppLoader from "@/components/AppLoader";
 import NotificationBell from "@/components/NotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 import { getTurmaDoAluno, listarConteudoDaTurmaParaAluno } from "@/lib/aluno-dashboard";
-import type { AulaModulo } from "@/lib/aulas";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { sincronizarPublicacoesAgendadas } from "@/lib/publicacoes";
@@ -33,40 +32,6 @@ function getPrimeiroNome(profile: UsuarioProfile | null) {
   return nome.split(/\s+/)[0] ?? nome;
 }
 
-function getInicioDaSemana(data: Date) {
-  const copia = new Date(data);
-  const dia = copia.getDay();
-  const diferenca = dia === 0 ? -6 : 1 - dia;
-  copia.setDate(copia.getDate() + diferenca);
-  copia.setHours(0, 0, 0, 0);
-  return copia;
-}
-
-function getFimDaSemana(data: Date) {
-  const inicio = getInicioDaSemana(data);
-  const fim = new Date(inicio);
-  fim.setDate(inicio.getDate() + 6);
-  fim.setHours(23, 59, 59, 999);
-  return fim;
-}
-
-function getDataEfetivaPublicacao(aula: Pick<AulaModulo, "data_publicacao" | "publicado_em" | "created_at">) {
-  return aula.data_publicacao ?? aula.publicado_em ?? aula.created_at;
-}
-
-function aulaPertenceASemanaAtual(
-  aula: Pick<AulaModulo, "data_publicacao" | "publicado_em" | "created_at">,
-  referencia = new Date(),
-) {
-  const dataBase = getDataEfetivaPublicacao(aula);
-  if (!dataBase) return false;
-
-  const dataPublicacao = new Date(dataBase);
-  const inicio = getInicioDaSemana(referencia);
-  const fim = getFimDaSemana(referencia);
-  return dataPublicacao.getTime() >= inicio.getTime() && dataPublicacao.getTime() <= fim.getTime();
-}
-
 export default function ProgressoPage() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
@@ -88,11 +53,7 @@ export default function ProgressoPage() {
   const corRestante = "#E5E7EB";
 
   const circuloStyle = useMemo(() => {
-    if (progressoCompleto) {
-      return { background: `conic-gradient(${corPrincipal} 0 100%)` };
-    }
-
-    if (semProgresso) {
+    if (progressoCompleto || semProgresso) {
       return { background: `conic-gradient(${corPrincipal} 0 100%)` };
     }
 
@@ -181,10 +142,7 @@ export default function ProgressoPage() {
           return;
         }
 
-        const aulas = modulos
-          .flatMap((modulo) => modulo.aulas)
-          .filter((aula) => aula.conta_no_progresso)
-          .filter((aula) => aulaPertenceASemanaAtual(aula));
+        const aulas = modulos.flatMap((modulo) => modulo.aulas).filter((aula) => aula.conta_no_progresso);
         const concluidas = aulas.filter((aula) => aula.concluido).length;
 
         setTotalAulas(aulas.length);
@@ -253,7 +211,10 @@ export default function ProgressoPage() {
         ) : null}
 
         <div className="flex flex-col items-center gap-5">
-          <div className="relative flex h-[196px] w-[196px] items-center justify-center rounded-full p-[7px]" style={circuloStyle}>
+          <div
+            className="relative flex h-[196px] w-[196px] items-center justify-center rounded-full p-[7px]"
+            style={circuloStyle}
+          >
             <div className="absolute inset-[10px] rounded-full bg-white" />
             <div className="relative z-10 flex h-[142px] w-[142px] items-center justify-center overflow-hidden rounded-full bg-slate-200">
               {profile?.foto_url ? (
@@ -275,7 +236,7 @@ export default function ProgressoPage() {
         </div>
 
         <div className="space-y-4">
-          <p className="text-xs font-medium text-[#d0d0d0]">Esta semana</p>
+          <p className="text-xs font-medium text-[#d0d0d0]">Seu progresso geral</p>
 
           <div className="flex items-center gap-3">
             <div
@@ -284,7 +245,7 @@ export default function ProgressoPage() {
               }`}
               style={semProgresso ? undefined : { backgroundColor: progressoCompleto ? "#F59E0B" : "#3B82F6" }}
             >
-              <span>Voc&ecirc; assistiu</span>
+              <span>Voce assistiu</span>
               <span>
                 {aulasConcluidas} {aulasConcluidas === 1 ? "aula" : "aulas"}
               </span>
@@ -310,13 +271,13 @@ export default function ProgressoPage() {
 
         {progressoCompleto ? (
           <p className="text-center text-[1.05rem] font-semibold leading-8 text-slate-900">
-            Parab&eacute;ns, voc&ecirc; assistiu
+            Parabens, voce assistiu
             <br />
-            todas as aulas desta semana! 🥳
+            todas as aulas disponiveis ate agora!
           </p>
         ) : semProgresso ? (
           <p className="text-center text-[1.05rem] font-semibold leading-8 text-slate-900">
-            N&atilde;o acumule aulas ... Separe um
+            Nao acumule aulas ... Separe um
             <br />
             tempinho para fazer as que faltam!
           </p>
