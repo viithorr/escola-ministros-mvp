@@ -295,19 +295,21 @@ export async function listarProgressoDosAlunosDaTurma(turmaId: string) {
     return { alunos: [] as AlunoProgressoTurma[], error: progressoError };
   }
 
-  const concluidasPorUsuario = new Map<string, number>();
+  const concluidasPorUsuario = new Map<string, Set<string>>();
 
   (((progressoRows as { usuario_id: string; aula_id: string; concluido: boolean }[] | null) ?? [])).forEach(
     (row) => {
-      concluidasPorUsuario.set(row.usuario_id, (concluidasPorUsuario.get(row.usuario_id) ?? 0) + 1);
+      const aulasConcluidas = concluidasPorUsuario.get(row.usuario_id) ?? new Set<string>();
+      aulasConcluidas.add(row.aula_id);
+      concluidasPorUsuario.set(row.usuario_id, aulasConcluidas);
     },
   );
 
   return {
     alunos: alunosTurma.map((aluno) => {
-      const aulasConcluidas = concluidasPorUsuario.get(aluno.usuario_id) ?? 0;
+      const aulasConcluidas = concluidasPorUsuario.get(aluno.usuario_id)?.size ?? 0;
       const progressoPercentual =
-        totalAulasLiberadas > 0 ? Math.round((aulasConcluidas / totalAulasLiberadas) * 100) : 0;
+        totalAulasLiberadas > 0 ? Math.min(Math.round((aulasConcluidas / totalAulasLiberadas) * 100), 100) : 0;
 
       return {
         ...aluno,
