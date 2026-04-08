@@ -122,7 +122,7 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
     (aula) => aula.id,
   );
 
-  let progressoPorAula = new Map<string, boolean>();
+  const progressoPorAula = new Map<string, boolean>();
 
   if (aulaIds.length > 0) {
     const { data: progressoRows, error: progressoError } = await supabase
@@ -135,9 +135,9 @@ export async function listarConteudoDaTurmaParaAluno(turmaId: string, usuarioId:
       return { modulos: [] as ModuloAlunoDashboard[], error: progressoError };
     }
 
-    progressoPorAula = new Map(
-      (((progressoRows as ProgressoAulaAluno[] | null) ?? []).map((row) => [row.aula_id, row.concluido])),
-    );
+    (((progressoRows as ProgressoAulaAluno[] | null) ?? [])).forEach((row) => {
+      progressoPorAula.set(row.aula_id, (progressoPorAula.get(row.aula_id) ?? false) || row.concluido);
+    });
   }
 
   const aulasPublicadasOrdenadas = ((data as ModuloAlunoDashboard[] | null) ?? []).flatMap((modulo) =>

@@ -322,6 +322,7 @@ export default function AulaAlunoPage() {
 
   async function handleMarcarConcluida(valor: boolean) {
     if (!user || !aulaId) return;
+    if (!valor && concluida) return;
 
     setSalvandoConclusao(true);
     setMensagem("");
@@ -509,13 +510,13 @@ export default function AulaAlunoPage() {
 
             <button
               type="button"
-              onClick={() => void handleMarcarConcluida(!concluida)}
-              disabled={salvandoConclusao}
+              onClick={() => void handleMarcarConcluida(true)}
+              disabled={salvandoConclusao || concluida}
               className={`flex items-center gap-2 text-base font-medium ${
                 concluida ? "text-[#11a6db]" : "text-[#c8c8c8]"
               }`}
             >
-              <span>Marcar aula como Concluida</span>
+              <span>{concluida ? "Aula concluida" : "Marcar aula como Concluida"}</span>
               <CheckCircle2 className="h-5 w-5" strokeWidth={2.4} />
             </button>
 

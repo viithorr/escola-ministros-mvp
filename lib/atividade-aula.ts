@@ -72,6 +72,28 @@ type AulaPanoramaRow = {
   conta_no_progresso: boolean;
 };
 
+function getUltimaDataValida(...valores: Array<string | null | undefined>) {
+  return valores
+    .filter((valor): valor is string => Boolean(valor))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+}
+
+function consolidarProgresso(rows: ProgressoAulaRow[]) {
+  if (rows.length === 0) return null;
+
+  const base = rows[0];
+
+  return {
+    id: base.id,
+    usuario_id: base.usuario_id,
+    aula_id: base.aula_id,
+    concluido: rows.some((row) => row.concluido),
+    data_conclusao: getUltimaDataValida(...rows.map((row) => row.data_conclusao)),
+    presente: rows.some((row) => row.presente ?? false),
+    confirmado_em: getUltimaDataValida(...rows.map((row) => row.confirmado_em)),
+  } satisfies ProgressoAulaRow;
+}
+
 type UsuarioDetalheRow = {
   id: string;
   nome: string | null;
@@ -153,12 +175,15 @@ export async function listarAtividadeDosAlunosDaAula(turmaId: string, aulaId: st
     return { alunos: [] as AlunoAtividadeAula[], error: progressoError };
   }
 
-  const progressoPorUsuario = new Map<string, ProgressoAulaRow>(
-    (((progressoRows as ProgressoAulaRow[] | null) ?? []).map((row) => [row.usuario_id, row])),
-  );
+  const progressoAgrupado = new Map<string, ProgressoAulaRow[]>();
+  (((progressoRows as ProgressoAulaRow[] | null) ?? [])).forEach((row) => {
+    const atual = progressoAgrupado.get(row.usuario_id) ?? [];
+    atual.push(row);
+    progressoAgrupado.set(row.usuario_id, atual);
+  });
 
   const alunos = alunosTurma.map<AlunoAtividadeAula>((aluno) => {
-    const progresso = progressoPorUsuario.get(aluno.usuario_id);
+    const progresso = consolidarProgresso(progressoAgrupado.get(aluno.usuario_id) ?? []);
 
     return {
       usuario_id: aluno.usuario_id,
@@ -423,17 +448,18 @@ export async function salvarPresencaManualDaAula(
   usuarioId: string,
   presente: boolean,
 ) {
-  const { data: existente, error: buscarError } = await supabase
+  const { data: existentes, error: buscarError } = await supabase
     .from("progresso_aula")
-    .select("id, concluido, data_conclusao")
+    .select("id, usuario_id, aula_id, concluido, data_conclusao, presente, confirmado_em")
     .eq("aula_id", aulaId)
     .eq("usuario_id", usuarioId)
-    .maybeSingle<{ id: string; concluido: boolean; data_conclusao: string | null }>();
+    .returns<ProgressoAulaRow[]>();
 
   if (buscarError) {
     return { error: buscarError };
   }
 
+  const existente = consolidarProgresso((existentes as ProgressoAulaRow[] | null) ?? []);
   const confirmadoEm = new Date().toISOString();
 
   if (existente) {
@@ -441,9 +467,10 @@ export async function salvarPresencaManualDaAula(
       .from("progresso_aula")
       .update({
         presente,
-        confirmado_em: confirmadoEm,
+        confirmado_em: presente ? confirmadoEm : existente.confirmado_em,
       })
-      .eq("id", existente.id);
+      .eq("aula_id", aulaId)
+      .eq("usuario_id", usuarioId);
 
     return { error };
   }
@@ -466,9 +493,9 @@ export async function getProgressoDoAlunoNaAula(aulaId: string, usuarioId: strin
     .select("id, usuario_id, aula_id, concluido, data_conclusao, presente, confirmado_em")
     .eq("aula_id", aulaId)
     .eq("usuario_id", usuarioId)
-    .maybeSingle<ProgressoAulaRow>();
+    .returns<ProgressoAulaRow[]>();
 
-  return { progresso: data, error };
+  return { progresso: consolidarProgresso((data as ProgressoAulaRow[] | null) ?? []), error };
 }
 
 export async function salvarConclusaoDaAula(
@@ -476,29 +503,36 @@ export async function salvarConclusaoDaAula(
   usuarioId: string,
   concluido: boolean,
 ) {
-  const { data: existente, error: buscarError } = await supabase
+  const { data: existentes, error: buscarError } = await supabase
     .from("progresso_aula")
-    .select("id, presente, confirmado_em")
+    .select("id, usuario_id, aula_id, concluido, data_conclusao, presente, confirmado_em")
     .eq("aula_id", aulaId)
     .eq("usuario_id", usuarioId)
-    .maybeSingle<{ id: string; presente: boolean | null; confirmado_em: string | null }>();
+    .returns<ProgressoAulaRow[]>();
 
   if (buscarError) {
     return { error: buscarError };
   }
 
-  const dataConclusao = concluido ? new Date().toISOString() : null;
+  const existente = consolidarProgresso((existentes as ProgressoAulaRow[] | null) ?? []);
+  const concluidoFinal = concluido || existente?.concluido || false;
+  const dataConclusao =
+    existente?.data_conclusao ?? (concluidoFinal ? new Date().toISOString() : null);
+  const confirmadoEm =
+    existente?.confirmado_em ?? (concluidoFinal ? dataConclusao : null);
+  const presente = concluidoFinal ? true : existente?.presente ?? false;
 
   if (existente) {
     const { error } = await supabase
       .from("progresso_aula")
       .update({
-        concluido,
+        concluido: concluidoFinal,
         data_conclusao: dataConclusao,
-        presente: concluido ? true : existente.presente ?? false,
-        confirmado_em: concluido ? dataConclusao : existente.confirmado_em,
+        presente,
+        confirmado_em: confirmadoEm,
       })
-      .eq("id", existente.id);
+      .eq("aula_id", aulaId)
+      .eq("usuario_id", usuarioId);
 
     return { error };
   }
@@ -506,10 +540,10 @@ export async function salvarConclusaoDaAula(
   const { error } = await supabase.from("progresso_aula").insert({
     usuario_id: usuarioId,
     aula_id: aulaId,
-    concluido,
+    concluido: concluidoFinal,
     data_conclusao: dataConclusao,
-    presente: concluido,
-    confirmado_em: concluido ? dataConclusao : null,
+    presente,
+    confirmado_em: confirmadoEm,
   });
 
   return { error };
