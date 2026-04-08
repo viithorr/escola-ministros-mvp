@@ -252,7 +252,11 @@ function AdminProgressoAlunoPageContent() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex min-h-[54px] items-center justify-between rounded-[4px] bg-[#3B82F6] px-4 text-sm font-medium text-white">
+              <div
+                className={`flex min-h-[54px] items-center justify-between rounded-[4px] px-4 text-sm font-medium ${
+                  detalhe.aulas_concluidas === 0 ? "bg-slate-50 text-slate-300" : "bg-[#3B82F6] text-white"
+                }`}
+              >
                 <span>Aulas Conclu&iacute;das</span>
                 <span>
                   {detalhe.aulas_concluidas} {detalhe.aulas_concluidas === 1 ? "aula" : "aulas"}

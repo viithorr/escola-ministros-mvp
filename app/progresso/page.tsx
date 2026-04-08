@@ -49,7 +49,7 @@ export default function ProgressoPage() {
   const progressoCompleto = totalAulas > 0 && aulasConcluidas === totalAulas;
   const semProgresso = aulasConcluidas === 0;
 
-  const corPrincipal = progressoCompleto ? "#F59E0B" : semProgresso ? "#D1D5DB" : "#3B82F6";
+  const corPrincipal = progressoCompleto ? "#3B82F6" : semProgresso ? "#D1D5DB" : "#F59E0B";
   const corRestante = "#E5E7EB";
 
   const circuloStyle = useMemo(() => {
@@ -243,7 +243,7 @@ export default function ProgressoPage() {
               className={`flex min-h-[52px] flex-1 items-center justify-between rounded-[4px] px-4 text-sm font-medium ${
                 semProgresso ? "bg-slate-50 text-slate-300" : "text-white"
               }`}
-              style={semProgresso ? undefined : { backgroundColor: progressoCompleto ? "#F59E0B" : "#3B82F6" }}
+              style={semProgresso ? undefined : { backgroundColor: "#3B82F6" }}
             >
               <span>Voce assistiu</span>
               <span>
