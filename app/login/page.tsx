@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
@@ -136,6 +137,13 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
 
+          <Link
+            href="/redefinir-senha"
+            className="mt-4 text-center text-sm font-medium text-white/90 underline-offset-4 hover:underline"
+          >
+            Redefinir senha
+          </Link>
+
           {mensagem ? <p className="mt-4 text-sm text-red-200">{mensagem}</p> : null}
         </div>
       </section>
@@ -191,6 +199,13 @@ export default function LoginPage() {
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
+
+          <Link
+            href="/redefinir-senha"
+            className="mt-4 block text-center text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-950 hover:underline"
+          >
+            Redefinir senha
+          </Link>
 
           {mensagem ? <p className="mt-4 text-sm text-red-600">{mensagem}</p> : null}
         </div>

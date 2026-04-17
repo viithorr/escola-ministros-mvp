@@ -80,6 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (!ativo) return;
 
+        if (error instanceof Error && error.message.includes("Refresh Token")) {
+          await supabase.auth.signOut({ scope: "local" });
+        }
+
         setUser(null);
         setProfile(null);
         setProfileError(
