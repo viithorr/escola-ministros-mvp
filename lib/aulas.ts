@@ -78,6 +78,40 @@ export function aulaEstaDisponivelParaAluno(
   return !aulaPrazoExpiradoParaAluno(aula, now);
 }
 
+export function getFimDaSemanaParaPublicacao(dataBase: string | Date) {
+  const data = typeof dataBase === "string" ? new Date(dataBase) : new Date(dataBase);
+  const dia = data.getDay();
+  const diasAteSabado = dia === 6 ? 0 : 6 - dia;
+  const fim = new Date(data);
+  fim.setDate(data.getDate() + diasAteSabado);
+  fim.setHours(23, 59, 59, 999);
+  return fim.toISOString();
+}
+
+function montarTituloMaterialLegado(arquivoUrl: string, indice: number) {
+  try {
+    const parsedUrl = new URL(arquivoUrl);
+    const ultimoTrecho = parsedUrl.pathname.split("/").filter(Boolean).pop();
+
+    if (ultimoTrecho) {
+      return decodeURIComponent(ultimoTrecho).replace(/\.[a-z0-9]+$/i, "");
+    }
+  } catch {
+    // Ignora e usa fallback abaixo.
+  }
+
+  return `Material complementar ${indice + 1}`;
+}
+
+function extrairUrlsLegadas(materialUrl: string | null) {
+  if (!materialUrl?.trim()) return [];
+
+  return materialUrl
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function getExtensao(file: File, fallback: string) {
   return file.name.split(".").pop()?.toLowerCase() || fallback;
 }
@@ -332,13 +366,36 @@ export async function criarMateriaisDaAula(
 }
 
 export async function listarMateriaisDaAula(aulaId: string) {
-  const { data, error } = await supabase
-    .from("materiais")
-    .select("id, aula_id, titulo, arquivo_url, created_at")
-    .eq("aula_id", aulaId)
-    .order("created_at", { ascending: true });
+  const [{ data, error }, { data: aulaData, error: aulaError }] = await Promise.all([
+    supabase
+      .from("materiais")
+      .select("id, aula_id, titulo, arquivo_url, created_at")
+      .eq("aula_id", aulaId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("aulas")
+      .select("id, material_url, created_at")
+      .eq("id", aulaId)
+      .maybeSingle<{ id: string; material_url: string | null; created_at: string }>(),
+  ]);
 
-  return { materiais: (data as MaterialAula[] | null) ?? [], error };
+  if (error || aulaError) {
+    return { materiais: [] as MaterialAula[], error: error ?? aulaError };
+  }
+
+  const materiais = ((data as MaterialAula[] | null) ?? []).slice();
+  const urlsJaMapeadas = new Set(materiais.map((material) => material.arquivo_url.trim()));
+  const materiaisLegados = extrairUrlsLegadas(aulaData?.material_url ?? null)
+    .filter((arquivoUrl) => !urlsJaMapeadas.has(arquivoUrl))
+    .map<MaterialAula>((arquivoUrl, indice) => ({
+      id: `legado-${aulaId}-${indice}`,
+      aula_id: aulaId,
+      titulo: montarTituloMaterialLegado(arquivoUrl, indice),
+      arquivo_url: arquivoUrl,
+      created_at: aulaData?.created_at ?? new Date(0).toISOString(),
+    }));
+
+  return { materiais: [...materiais, ...materiaisLegados], error: null };
 }
 
 export async function substituirMateriaisDaAula(
@@ -365,6 +422,28 @@ export async function listarAulasDosModulos(moduloIds: string[]) {
       "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
     )
     .in("modulo_id", moduloIds)
+    .order("ordem", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  return { aulas: (data as AulaModulo[] | null) ?? [], error };
+}
+
+export async function abrirTodasAsAulasDoModulo(moduloId: string) {
+  const agora = new Date().toISOString();
+  const dataFechamento = getFimDaSemanaParaPublicacao(agora);
+
+  const { data, error } = await supabase
+    .from("aulas")
+    .update({
+      publicado: true,
+      publicado_em: agora,
+      data_publicacao: null,
+      data_fechamento: dataFechamento,
+    })
+    .eq("modulo_id", moduloId)
+    .select(
+      "id, modulo_id, titulo, descricao, video_url, material_url, duracao_texto, ordem, bloqueado, data_publicacao, data_fechamento, publicado, publicado_em, conta_no_progresso, created_at",
+    )
     .order("ordem", { ascending: true })
     .order("created_at", { ascending: true });
 

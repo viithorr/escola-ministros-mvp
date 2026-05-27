@@ -21,7 +21,7 @@ import {
 import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { arquivarTurma, excluirTurma } from "@/lib/admin-turmas";
-import { AulaModulo } from "@/lib/aulas";
+import { abrirTodasAsAulasDoModulo, AulaModulo } from "@/lib/aulas";
 import {
   atualizarModulo,
   criarModulo,
@@ -70,12 +70,15 @@ export default function TurmaPage() {
   const [salvandoTurma, setSalvandoTurma] = useState(false);
   const [moduloExpandido, setModuloExpandido] = useState<string | null>(null);
   const [moduloParaExcluir, setModuloParaExcluir] = useState<ModuloTurma | null>(null);
+  const [moduloParaAbrirTodas, setModuloParaAbrirTodas] = useState<ModuloTurma | null>(null);
   const [excluindoModulo, setExcluindoModulo] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [acaoTurma, setAcaoTurma] = useState<"arquivar" | "excluir" | null>(null);
   const [senhaConfirmacao, setSenhaConfirmacao] = useState("");
   const [executandoAcaoTurma, setExecutandoAcaoTurma] = useState(false);
   const [salvandoCapa, setSalvandoCapa] = useState(false);
+  const [abrindoAulasPorModulo, setAbrindoAulasPorModulo] = useState<Record<string, boolean>>({});
+  const [mensagemSucessoAulas, setMensagemSucessoAulas] = useState("");
   const inputCapaRef = useRef<HTMLInputElement | null>(null);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
@@ -274,6 +277,43 @@ export default function TurmaPage() {
     setNomeTurmaEdicao(turmaAtualizada.nome);
     setMostrarModalTurma(false);
     setSalvandoTurma(false);
+  }
+
+  async function handleAbrirTodasAsAulas(modulo: ModuloTurma) {
+    const aulasDoModulo = aulasPorModulo[modulo.id] ?? [];
+
+    if (aulasDoModulo.length === 0) {
+      setMensagem("Este modulo ainda nao possui aulas para abrir.");
+      return;
+    }
+
+    setAbrindoAulasPorModulo((estadoAtual) => ({
+      ...estadoAtual,
+      [modulo.id]: true,
+    }));
+    setMensagem("");
+
+    const { aulas, error } = await abrirTodasAsAulasDoModulo(modulo.id);
+
+    if (error) {
+      setMensagem("Nao foi possivel abrir todas as aulas deste modulo agora. Tente novamente.");
+      setAbrindoAulasPorModulo((estadoAtual) => ({
+        ...estadoAtual,
+        [modulo.id]: false,
+      }));
+      return;
+    }
+
+    setAulasPorModulo((estadoAtual) => ({
+      ...estadoAtual,
+      [modulo.id]: aulas,
+    }));
+    setModuloParaAbrirTodas(null);
+    setMensagemSucessoAulas(`Todas as aulas do modulo ${modulo.titulo} foram abertas ate o fim desta semana.`);
+    setAbrindoAulasPorModulo((estadoAtual) => ({
+      ...estadoAtual,
+      [modulo.id]: false,
+    }));
   }
 
   async function handleTrocarCapa(event: ChangeEvent<HTMLInputElement>) {
@@ -558,6 +598,18 @@ export default function TurmaPage() {
 
                         {expandido ? (
                           <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMensagem("");
+                                setModuloParaAbrirTodas(modulo);
+                              }}
+                              disabled={abrindoAulasPorModulo[modulo.id] || !aulasPorModulo[modulo.id]?.length}
+                              className="w-full rounded-[10px] bg-[#0e5d77] px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                            >
+                              {abrindoAulasPorModulo[modulo.id] ? "Abrindo aulas..." : "Abrir todas as aulas"}
+                            </button>
+
                             {aulasPorModulo[modulo.id]?.length ? (
                               <div className="space-y-2 pt-1">
                                 {aulasPorModulo[modulo.id].map((aula, index) => (
@@ -830,6 +882,66 @@ export default function TurmaPage() {
                   {excluindoModulo ? "Excluindo..." : "Confirmar"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {moduloParaAbrirTodas ? (
+        <div className="fixed inset-0 z-[61] bg-slate-950/45 px-4 py-6 sm:flex sm:items-center sm:justify-center">
+          <div className="mx-auto w-full max-w-sm rounded-[22px] bg-white px-5 py-5 shadow-2xl">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-slate-900">Abrir todas as aulas</h2>
+                <p className="text-sm leading-6 text-slate-600">
+                  Deseja realmente abrir todas as aulas do modulo <strong>{moduloParaAbrirTodas.titulo}</strong>?
+                  Elas ficarao disponiveis ate o fim desta semana.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (abrindoAulasPorModulo[moduloParaAbrirTodas.id]) return;
+                    setModuloParaAbrirTodas(null);
+                  }}
+                  disabled={abrindoAulasPorModulo[moduloParaAbrirTodas.id]}
+                  className="flex-1 rounded-[10px] border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleAbrirTodasAsAulas(moduloParaAbrirTodas)}
+                  disabled={abrindoAulasPorModulo[moduloParaAbrirTodas.id]}
+                  className="flex-1 rounded-[10px] bg-[#0e5d77] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {abrindoAulasPorModulo[moduloParaAbrirTodas.id] ? "Abrindo..." : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {mensagemSucessoAulas ? (
+        <div className="fixed inset-0 z-[62] bg-slate-950/45 px-4 py-6 sm:flex sm:items-center sm:justify-center">
+          <div className="mx-auto w-full max-w-sm rounded-[22px] bg-white px-5 py-5 shadow-2xl">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-slate-900">Aulas abertas</h2>
+                <p className="text-sm leading-6 text-slate-600">{mensagemSucessoAulas}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMensagemSucessoAulas("")}
+                className="w-full rounded-[10px] bg-[#0e5d77] px-4 py-3 text-sm font-medium text-white"
+              >
+                Entendi
+              </button>
             </div>
           </div>
         </div>
