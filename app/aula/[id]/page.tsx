@@ -203,6 +203,30 @@ function getIniciais(profile: UsuarioProfile | null) {
   return (profile?.email?.slice(0, 2) || "AD").toUpperCase();
 }
 
+function montarMaterialDeLink(tituloMaterial: string, linkMaterial: string) {
+  const linkLimpo = linkMaterial.trim();
+
+  if (!linkLimpo) {
+    return { material: null, error: "Cole um link para adicionar aos materiais." };
+  }
+
+  try {
+    const url = new URL(linkLimpo);
+
+    return {
+      material: {
+        id: crypto.randomUUID(),
+        titulo: tituloMaterial.trim() || "Link complementar",
+        arquivo_url: url.toString(),
+        tipo: "link" as const,
+      },
+      error: null,
+    };
+  } catch {
+    return { material: null, error: "Digite um link valido para o material." };
+  }
+}
+
 export default function NovaAulaPage() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
@@ -420,26 +444,16 @@ export default function NovaAulaPage() {
   }
 
   function handleAdicionarLinkMaterial() {
-    if (!linkMaterial.trim()) {
-      setMensagem("Cole um link para adicionar aos materiais.");
-      return;
-    }
+    const { material, error } = montarMaterialDeLink(tituloMaterial, linkMaterial);
 
-    try {
-      new URL(linkMaterial);
-    } catch {
-      setMensagem("Digite um link valido para o material.");
+    if (error || !material) {
+      setMensagem(error || "Nao foi possivel adicionar este link agora.");
       return;
     }
 
     setMateriais((estadoAtual) => [
       ...estadoAtual,
-      {
-        id: crypto.randomUUID(),
-        titulo: tituloMaterial.trim() || "Link complementar",
-        arquivo_url: linkMaterial.trim(),
-        tipo: "link",
-      },
+      material,
     ]);
     setTituloMaterial("");
     setLinkMaterial("");
@@ -470,6 +484,20 @@ export default function NovaAulaPage() {
 
     setPublicandoAula(true);
     setMensagem("");
+    const materiaisParaSalvar = [...materiais];
+
+    if (linkMaterial.trim()) {
+      const { material, error } = montarMaterialDeLink(tituloMaterial, linkMaterial);
+
+      if (error || !material) {
+        setMensagem(error || "Nao foi possivel preparar o link do material.");
+        setPublicandoAula(false);
+        return;
+      }
+
+      materiaisParaSalvar.push(material);
+    }
+
     const duracaoFinal = duracaoTexto.trim() || null;
     const dataHoraAgendada =
       modoPublicacao === "agendada" && dataPublicacao && horaPublicacao
@@ -572,14 +600,14 @@ export default function NovaAulaPage() {
     const { error: materiaisError } = await (modoEdicao && aulaId
       ? substituirMateriaisDaAula(
           aulaId,
-          materiais.map((material) => ({
+          materiaisParaSalvar.map((material) => ({
             titulo: material.titulo,
             arquivo_url: material.arquivo_url,
           })),
         )
       : substituirMateriaisDaAula(
           aula.id,
-          materiais.map((material) => ({
+          materiaisParaSalvar.map((material) => ({
             titulo: material.titulo,
             arquivo_url: material.arquivo_url,
           })),
@@ -590,6 +618,10 @@ export default function NovaAulaPage() {
       setPublicandoAula(false);
       return;
     }
+
+    setMateriais(materiaisParaSalvar);
+    setTituloMaterial("");
+    setLinkMaterial("");
 
     if (deveNotificarNovaAula && modulo?.turma_id) {
       await notificarTurma({
