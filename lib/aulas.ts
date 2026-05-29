@@ -103,13 +103,44 @@ function montarTituloMaterialLegado(arquivoUrl: string, indice: number) {
   return `Material complementar ${indice + 1}`;
 }
 
+function normalizarMaterialUrl(arquivoUrl: string) {
+  const valor = arquivoUrl.trim();
+
+  try {
+    return new URL(valor).toString();
+  } catch {
+    return valor;
+  }
+}
+
 function extrairUrlsLegadas(materialUrl: string | null) {
   if (!materialUrl?.trim()) return [];
 
   return materialUrl
-    .split(/\r?\n/)
+    .split(/\r?\n|[,;]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+async function sincronizarCampoLegadoMaterialUrl(
+  aulaId: string,
+  materiais: Array<{ arquivo_url: string }>,
+) {
+  const materialUrl = materiais.length
+    ? materiais
+        .map((material) => normalizarMaterialUrl(material.arquivo_url))
+        .filter(Boolean)
+        .join("\n")
+    : null;
+
+  const { error } = await supabase
+    .from("aulas")
+    .update({
+      material_url: materialUrl,
+    })
+    .eq("id", aulaId);
+
+  return { error };
 }
 
 function getExtensao(file: File, fallback: string) {
@@ -354,7 +385,7 @@ export async function criarMateriaisDaAula(
   const payload = materiais.map((material) => ({
     aula_id: aulaId,
     titulo: material.titulo.trim(),
-    arquivo_url: material.arquivo_url,
+    arquivo_url: normalizarMaterialUrl(material.arquivo_url),
   }));
 
   const { data, error } = await supabase
@@ -362,7 +393,13 @@ export async function criarMateriaisDaAula(
     .insert(payload)
     .select("id, aula_id, titulo, arquivo_url, created_at");
 
-  return { materiais: (data as MaterialAula[] | null) ?? [], error };
+  if (error) {
+    return { materiais: [] as MaterialAula[], error };
+  }
+
+  const { error: legadoError } = await sincronizarCampoLegadoMaterialUrl(aulaId, payload);
+
+  return { materiais: (data as MaterialAula[] | null) ?? [], error: legadoError };
 }
 
 export async function listarMateriaisDaAula(aulaId: string) {
@@ -406,6 +443,11 @@ export async function substituirMateriaisDaAula(
 
   if (deleteError) {
     return { materiais: [] as MaterialAula[], error: deleteError };
+  }
+
+  if (materiais.length === 0) {
+    const { error: legadoError } = await sincronizarCampoLegadoMaterialUrl(aulaId, []);
+    return { materiais: [] as MaterialAula[], error: legadoError };
   }
 
   return criarMateriaisDaAula(aulaId, materiais);
