@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { criarNotificacoesParaTurma } from "@/lib/server-notificacoes";
+import { autenticarAdmin } from "@/lib/server-auth";
 
 export async function POST(request: NextRequest) {
+  const autenticacao = await autenticarAdmin(request);
+
+  if (autenticacao.error) {
+    return NextResponse.json({ error: autenticacao.error }, { status: 401 });
+  }
+
   const body = (await request.json()) as {
     turmaId?: string;
     tipo?: string;

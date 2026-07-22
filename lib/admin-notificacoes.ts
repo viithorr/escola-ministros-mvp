@@ -9,10 +9,18 @@ type NotificacaoTurmaClientPayload = {
 
 export async function notificarTurma(payload: NotificacaoTurmaClientPayload) {
   try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      return { error: "Sua sessao expirou. Entre novamente." };
+    }
+
     const response = await fetch("/api/notificacoes/turma", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
     });
@@ -28,3 +36,4 @@ export async function notificarTurma(payload: NotificacaoTurmaClientPayload) {
     return { error: "Nao foi possivel criar a notificacao." };
   }
 }
+import { supabase } from "@/lib/supabase";

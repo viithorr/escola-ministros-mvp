@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import NotificationCampaignOverlay from "@/components/NotificationCampaignOverlay";
 
 export const metadata: Metadata = {
   title: "Escola de Ministros",
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className="antialiased">
         <AuthProvider>
+          <NotificationCampaignOverlay />
           {children}
         </AuthProvider>
       </body>

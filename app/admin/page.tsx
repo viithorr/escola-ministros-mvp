@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChartPie, CircleUserRound, House } from "lucide-react";
 import AppLoader from "@/components/AppLoader";
+import AdminNotificationBell from "@/components/AdminNotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { supabase } from "@/lib/supabase";
@@ -272,7 +273,7 @@ export default function AdminPage() {
     <main className="min-h-screen bg-white pb-28 pt-28">
       <header className="fixed inset-x-0 top-0 z-30 bg-white px-4 pb-4 pt-5">
         <div className="mx-auto flex max-w-md items-center justify-between">
-          <div className="w-12" />
+          <AdminNotificationBell />
 
           <Image
             src="/img/logo.svg"

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 export type AcaoNotificacaoPayload = {
   rota?: string;
+  rotulo?: string;
   aula_id?: string;
   encontro_id?: string;
 };
@@ -80,6 +81,7 @@ export function getRotaDaNotificacao(notificacao: Notificacao) {
 }
 
 export function getRotuloDaAcao(notificacao: Notificacao) {
+  if (notificacao.acao_payload?.rotulo) return notificacao.acao_payload.rotulo;
   if (notificacao.acao_tipo === "abrir_aula") return "Acessar aula";
   if (notificacao.acao_tipo === "abrir_encontro") return "Confirmar presenca";
   if (notificacao.acao_tipo === "abrir_dashboard") return "Ver minhas aulas";
