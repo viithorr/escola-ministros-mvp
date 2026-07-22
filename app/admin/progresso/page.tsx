@@ -8,6 +8,21 @@ import AppLoader from "@/components/AppLoader";
 import { useAuth } from "@/contexts/AuthContext";
 import { listarProgressoDosAlunosDaTurma, type AlunoProgressoTurma } from "@/lib/atividade-aula";
 import { listarAvaliacoesDaTurma, type AvaliacaoResumoTurma } from "@/lib/avaliacoes-admin";
+import {
+  agendarFechamentoBoletim,
+  buscarOfertaBoletim,
+  criarOfertaBoletim,
+  criarPeriodoLetivo,
+  fecharBoletimAgora,
+  listarBoletinsDaOferta,
+  listarPeriodosLetivos,
+  reabrirBoletim,
+  salvarNotasBoletim,
+  type BoletimAluno,
+  type OfertaBoletim,
+  type PeriodoLetivo,
+} from "@/lib/boletim";
+import { listarModulosDaTurma, type ModuloTurma } from "@/lib/modulos";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { listarTurmas, type TurmaAdmin } from "@/lib/turmas";
 import { isValidUserRole, type UsuarioProfile } from "@/lib/usuarios";
@@ -38,6 +53,13 @@ function getIniciaisAluno(aluno: AlunoProgressoTurma) {
   return (aluno.email.slice(0, 2) || "AL").toUpperCase();
 }
 
+function formatarDataHoraLocal(valor: string | null) {
+  if (!valor) return "";
+  const data = new Date(valor);
+  const local = new Date(data.getTime() - data.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 function AdminProgressoPageContent() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
@@ -50,7 +72,19 @@ function AdminProgressoPageContent() {
   const [turmas, setTurmas] = useState<TurmaAdmin[]>([]);
   const [alunos, setAlunos] = useState<AlunoProgressoTurma[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<AvaliacaoResumoTurma[]>([]);
-  const [abaSelecionada, setAbaSelecionada] = useState<"aulas" | "avaliacoes">("aulas");
+  const [abaSelecionada, setAbaSelecionada] = useState<"aulas" | "avaliacoes" | "boletim">("aulas");
+  const [periodos, setPeriodos] = useState<PeriodoLetivo[]>([]);
+  const [modulos, setModulos] = useState<ModuloTurma[]>([]);
+  const [periodoId, setPeriodoId] = useState("");
+  const [moduloId, setModuloId] = useState("");
+  const [novoPeriodo, setNovoPeriodo] = useState("");
+  const [boletins, setBoletins] = useState<BoletimAluno[]>([]);
+  const [notas, setNotas] = useState<Record<string, { p1: string; p2: string }>>({});
+  const [carregandoBoletim, setCarregandoBoletim] = useState(false);
+  const [salvandoBoletim, setSalvandoBoletim] = useState(false);
+  const [ofertaBoletim, setOfertaBoletim] = useState<OfertaBoletim | null>(null);
+  const [fechamentoEm, setFechamentoEm] = useState("");
+  const [atualizandoFechamento, setAtualizandoFechamento] = useState(false);
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
 
@@ -94,7 +128,11 @@ function AdminProgressoPageContent() {
       setMensagem("");
 
       try {
-        const { turmas: turmasData, error: turmasError } = await withTimeout(listarTurmas());
+        const [turmasResult, periodosResult] = await Promise.all([
+          withTimeout(listarTurmas()),
+          withTimeout(listarPeriodosLetivos()),
+        ]);
+        const { turmas: turmasData, error: turmasError } = turmasResult;
 
         if (turmasError) {
           setMensagem("Nao conseguimos carregar suas turmas agora. Tente novamente em alguns instantes.");
@@ -103,19 +141,26 @@ function AdminProgressoPageContent() {
         }
 
         setTurmas(turmasData);
+        if (!periodosResult.error) setPeriodos(periodosResult.periodos);
 
         if (!turmaIdSelecionada) {
           setTurma(null);
           setAlunos([]);
+          setModulos([]);
           setCarregandoDados(false);
           return;
         }
 
         const turmaData = turmasData.find((item) => item.id === turmaIdSelecionada) ?? null;
 
-        const [{ alunos: alunosData, error: alunosError }, { avaliacoes: avaliacoesData, error: avaliacoesError }] = await Promise.all([
+        const [
+          { alunos: alunosData, error: alunosError },
+          { avaliacoes: avaliacoesData, error: avaliacoesError },
+          { modulos: modulosData, error: modulosError },
+        ] = await Promise.all([
           withTimeout(listarProgressoDosAlunosDaTurma(turmaIdSelecionada)),
           withTimeout(listarAvaliacoesDaTurma(turmaIdSelecionada)),
+          withTimeout(listarModulosDaTurma(turmaIdSelecionada)),
         ]);
 
         if (!turmaData) {
@@ -136,9 +181,16 @@ function AdminProgressoPageContent() {
           return;
         }
 
+        if (modulosError) {
+          setMensagem("Nao conseguimos carregar os modulos desta turma agora.");
+          setCarregandoDados(false);
+          return;
+        }
+
         setTurma(turmaData);
         setAlunos(alunosData);
         setAvaliacoes(avaliacoesData);
+        setModulos(modulosData);
       } catch (error) {
         setMensagem(
           error instanceof RequestTimeoutError
@@ -152,6 +204,203 @@ function AdminProgressoPageContent() {
 
     void carregarProgresso();
   }, [loadingPage, turmaIdSelecionada]);
+
+  useEffect(() => {
+    async function carregarNotas() {
+      if (!periodoId || !moduloId) {
+        setBoletins([]);
+        setNotas({});
+        setOfertaBoletim(null);
+        setFechamentoEm("");
+        return;
+      }
+
+      setCarregandoBoletim(true);
+      const { oferta, error: ofertaError } = await buscarOfertaBoletim(periodoId, moduloId);
+
+      if (ofertaError || !oferta) {
+        setBoletins([]);
+        setNotas({});
+        setOfertaBoletim(null);
+        setFechamentoEm("");
+        setCarregandoBoletim(false);
+        return;
+      }
+
+      setOfertaBoletim(oferta);
+      setFechamentoEm(formatarDataHoraLocal(oferta.fechamento_em));
+
+      const { boletins: boletinsData, error } = await listarBoletinsDaOferta(oferta.id);
+      if (error) {
+        setMensagem("Nao conseguimos carregar as notas deste boletim agora.");
+        setCarregandoBoletim(false);
+        return;
+      }
+
+      setBoletins(boletinsData);
+      setNotas(
+        Object.fromEntries(
+          boletinsData.map((item) => [
+            item.usuario_id,
+            { p1: item.p1?.toString() ?? "", p2: item.p2?.toString() ?? "" },
+          ]),
+        ),
+      );
+      setCarregandoBoletim(false);
+    }
+
+    void carregarNotas();
+  }, [moduloId, periodoId]);
+
+  async function handleCriarPeriodo() {
+    if (!/^\d{4}\/\d+$/.test(novoPeriodo.trim())) {
+      setMensagem("Informe o periodo no formato 2026/2.");
+      return;
+    }
+
+    const { periodo, error } = await criarPeriodoLetivo(novoPeriodo);
+    if (error || !periodo) {
+      setMensagem("Nao foi possivel criar o periodo. Verifique se ele ja existe.");
+      return;
+    }
+
+    setPeriodos((atuais) => [periodo, ...atuais]);
+    setPeriodoId(periodo.id);
+    setNovoPeriodo("");
+    setMensagem("");
+  }
+
+  async function handleSalvarBoletim() {
+    if (!turmaIdSelecionada || !periodoId || !moduloId) {
+      setMensagem("Selecione o periodo e o modulo antes de salvar.");
+      return;
+    }
+
+    const payload = alunos.map((aluno) => {
+      const valores = notas[aluno.usuario_id] ?? { p1: "", p2: "" };
+      return {
+        usuario_id: aluno.usuario_id,
+        p1: valores.p1 === "" ? null : Number(valores.p1.replace(",", ".")),
+        p2: valores.p2 === "" ? null : Number(valores.p2.replace(",", ".")),
+      };
+    });
+
+    if (payload.some((item) => item.p1 !== null && (!Number.isFinite(item.p1) || item.p1 < 0 || item.p1 > 11))) {
+      setMensagem("As notas P1 devem estar entre 0 e 11.");
+      return;
+    }
+    if (payload.some((item) => item.p2 !== null && (!Number.isFinite(item.p2) || item.p2 < 0 || item.p2 > 6))) {
+      setMensagem("As notas P2 devem estar entre 0 e 6.");
+      return;
+    }
+
+    setSalvandoBoletim(true);
+    setMensagem("");
+    let { oferta, error } = await buscarOfertaBoletim(periodoId, moduloId);
+
+    if (!oferta && !error) {
+      const resultado = await criarOfertaBoletim(periodoId, turmaIdSelecionada, moduloId);
+      oferta = resultado.oferta;
+      error = resultado.error;
+    }
+
+    if (error || !oferta) {
+      setMensagem("Nao foi possivel preparar este boletim agora.");
+      setSalvandoBoletim(false);
+      return;
+    }
+
+    setOfertaBoletim(oferta);
+
+    const { error: notasError } = await salvarNotasBoletim(oferta.id, payload);
+    if (notasError) {
+      setMensagem("Nao foi possivel salvar as notas agora.");
+      setSalvandoBoletim(false);
+      return;
+    }
+
+    const { boletins: atualizados, error: recargaError } = await listarBoletinsDaOferta(oferta.id);
+    if (!recargaError) setBoletins(atualizados);
+    setMensagem("Notas salvas com sucesso.");
+    setSalvandoBoletim(false);
+  }
+
+  async function recarregarBoletim(oferta: OfertaBoletim, mensagemSucesso: string) {
+    setOfertaBoletim(oferta);
+    setFechamentoEm(formatarDataHoraLocal(oferta.fechamento_em));
+    const { boletins: atualizados, error } = await listarBoletinsDaOferta(oferta.id);
+    if (!error) setBoletins(atualizados);
+    setMensagem(mensagemSucesso);
+    setAtualizandoFechamento(false);
+  }
+
+  function validarFechamento() {
+    const completos = alunos.length > 0
+      && boletins.length === alunos.length
+      && boletins.every((item) => item.p1 !== null && item.p2 !== null);
+
+    if (!ofertaBoletim) {
+      setMensagem("Salve as notas antes de configurar o fechamento.");
+      return false;
+    }
+    if (!completos) {
+      setMensagem("Lance e salve P1 e P2 de todos os alunos antes de fechar o boletim.");
+      return false;
+    }
+    return true;
+  }
+
+  async function handleAgendarFechamento() {
+    if (!validarFechamento() || !ofertaBoletim) return;
+    if (!fechamentoEm) {
+      setMensagem("Escolha a data e a hora do fechamento.");
+      return;
+    }
+
+    setAtualizandoFechamento(true);
+    const { oferta, error } = await agendarFechamentoBoletim(
+      ofertaBoletim.id,
+      new Date(fechamentoEm).toISOString(),
+    );
+    if (error || !oferta) {
+      setMensagem("Nao foi possivel agendar o fechamento agora.");
+      setAtualizandoFechamento(false);
+      return;
+    }
+    await recarregarBoletim(oferta, "Fechamento agendado com sucesso.");
+  }
+
+  async function handleFecharAgora() {
+    if (!validarFechamento() || !ofertaBoletim) return;
+    if (!window.confirm("Fechar o boletim agora? A CVA sera congelada com o progresso atual.")) return;
+
+    setAtualizandoFechamento(true);
+    const { oferta, error } = await fecharBoletimAgora(ofertaBoletim.id);
+    if (error || !oferta) {
+      setMensagem("Nao foi possivel fechar o boletim agora.");
+      setAtualizandoFechamento(false);
+      return;
+    }
+    await recarregarBoletim(oferta, "Boletim fechado com sucesso.");
+  }
+
+  async function handleReabrirBoletim() {
+    if (!ofertaBoletim) return;
+    if (!window.confirm("Reabrir este boletim? A CVA voltara a acompanhar o progresso do aluno.")) return;
+
+    setAtualizandoFechamento(true);
+    const { oferta, error } = await reabrirBoletim(ofertaBoletim.id);
+    if (error || !oferta) {
+      setMensagem("Nao foi possivel reabrir o boletim agora.");
+      setAtualizandoFechamento(false);
+      return;
+    }
+    await recarregarBoletim(oferta, "Boletim reaberto com sucesso.");
+  }
+
+  const boletimEncerrado = boletins.some((item) => item.encerrado);
+  const fechamentoAgendado = Boolean(ofertaBoletim?.fechamento_em) && !boletimEncerrado;
+  const dataEncerramento = boletins.find((item) => item.encerramento_efetivo)?.encerramento_efetivo ?? null;
 
   if (loading || loadingPage) {
     return <AppLoader />;
@@ -280,7 +529,7 @@ function AdminProgressoPageContent() {
                 Ver outra turma
               </button>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setAbaSelecionada("aulas")}
@@ -299,6 +548,16 @@ function AdminProgressoPageContent() {
                   }`}
                 >
                   Avaliacoes
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAbaSelecionada("boletim")}
+                  className={`rounded-[12px] px-3 py-3 text-sm font-semibold transition ${
+                    abaSelecionada === "boletim" ? "bg-[#0e5d77] text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  Boletim
                 </button>
               </div>
 
@@ -355,7 +614,7 @@ function AdminProgressoPageContent() {
                     </div>
                   )}
                 </>
-              ) : (
+              ) : abaSelecionada === "avaliacoes" ? (
                 <div className="space-y-4 pt-1">
                   <p className="text-[0.72rem] text-[#d8d8d8]">Avaliacoes da turma</p>
 
@@ -416,6 +675,176 @@ function AdminProgressoPageContent() {
                       </button>
                     ))
                   )}
+                </div>
+              ) : (
+                <div className="space-y-5 pt-1">
+                  <div className="space-y-3 rounded-[14px] bg-slate-50 p-4">
+                    <label className="block text-xs font-medium text-slate-500">
+                      Periodo
+                      <select
+                        value={periodoId}
+                        onChange={(event) => setPeriodoId(event.target.value)}
+                        className="mt-1 w-full rounded-[10px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800"
+                      >
+                        <option value="">Selecione</option>
+                        {periodos.map((periodo) => (
+                          <option key={periodo.id} value={periodo.id}>{periodo.codigo}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="flex gap-2">
+                      <input
+                        value={novoPeriodo}
+                        onChange={(event) => setNovoPeriodo(event.target.value)}
+                        placeholder="Novo periodo: 2026/2"
+                        className="min-w-0 flex-1 rounded-[10px] border border-slate-200 bg-white px-3 py-3 text-sm"
+                      />
+                      <button type="button" onClick={handleCriarPeriodo} className="rounded-[10px] bg-slate-800 px-4 text-sm font-medium text-white">
+                        Criar
+                      </button>
+                    </div>
+
+                    <label className="block text-xs font-medium text-slate-500">
+                      Modulo
+                      <select
+                        value={moduloId}
+                        onChange={(event) => setModuloId(event.target.value)}
+                        className="mt-1 w-full rounded-[10px] border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800"
+                      >
+                        <option value="">Selecione</option>
+                        {modulos.map((modulo) => (
+                          <option key={modulo.id} value={modulo.id}>
+                            {modulo.codigo ? `${modulo.codigo} - ` : ""}{modulo.titulo}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {carregandoBoletim ? <AppLoader fullScreen={false} /> : null}
+
+                  {!carregandoBoletim && periodoId && moduloId ? (
+                    <section className="space-y-4 rounded-[16px] border border-slate-200 bg-white p-4 shadow-[0_4px_18px_rgba(15,23,42,0.06)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold text-slate-900">Fechamento do boletim</h3>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            Ao fechar, a CVA considera apenas as videoaulas concluidas ate aquele momento.
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                            boletimEncerrado
+                              ? "bg-emerald-100 text-emerald-700"
+                              : fechamentoAgendado
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {boletimEncerrado ? "Fechado" : fechamentoAgendado ? "Agendado" : "Em andamento"}
+                        </span>
+                      </div>
+
+                      {boletimEncerrado ? (
+                        <div className="space-y-3">
+                          <p className="rounded-[12px] bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                            Fechado em {dataEncerramento ? new Date(dataEncerramento).toLocaleString("pt-BR") : "data registrada"}.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleReabrirBoletim}
+                            disabled={atualizandoFechamento}
+                            className="w-full rounded-[10px] border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                          >
+                            {atualizandoFechamento ? "Atualizando..." : "Reabrir boletim"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <label className="block text-xs font-medium text-slate-600">
+                            Data e hora do fechamento
+                            <input
+                              type="datetime-local"
+                              value={fechamentoEm}
+                              onChange={(event) => setFechamentoEm(event.target.value)}
+                              className="mt-1 w-full rounded-[10px] border border-slate-200 px-3 py-3 text-sm text-slate-900 outline-none focus:border-[#0e5d77]"
+                            />
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              onClick={handleAgendarFechamento}
+                              disabled={atualizandoFechamento}
+                              className="rounded-[10px] bg-[#dbe8ff] px-3 py-3 text-sm font-semibold text-[#4f45d1] disabled:opacity-60"
+                            >
+                              Agendar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleFecharAgora}
+                              disabled={atualizandoFechamento}
+                              className="rounded-[10px] bg-[#0e5d77] px-3 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                              Fechar agora
+                            </button>
+                          </div>
+                          {!ofertaBoletim ? (
+                            <p className="text-xs text-amber-700">Salve as notas para habilitar o fechamento.</p>
+                          ) : null}
+                        </div>
+                      )}
+                    </section>
+                  ) : null}
+
+                  {!carregandoBoletim && periodoId && moduloId ? (
+                    alunos.length === 0 ? (
+                      <p className="rounded-[12px] bg-slate-100 px-4 py-6 text-sm text-slate-500">Nenhum aluno nesta turma.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {alunos.map((aluno) => {
+                          const boletim = boletins.find((item) => item.usuario_id === aluno.usuario_id);
+                          const valores = notas[aluno.usuario_id] ?? { p1: "", p2: "" };
+                          return (
+                            <article key={aluno.usuario_id} className="space-y-3 rounded-[14px] border border-slate-200 p-4">
+                              <p className="font-medium text-slate-900">{aluno.nome || aluno.email}</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <label className="text-xs text-slate-500">P1 / 11
+                                  <input
+                                    inputMode="decimal"
+                                    value={valores.p1}
+                                    onChange={(event) => setNotas((atuais) => ({ ...atuais, [aluno.usuario_id]: { ...valores, p1: event.target.value } }))}
+                                    className="mt-1 w-full rounded-[8px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                                  />
+                                </label>
+                                <label className="text-xs text-slate-500">P2 / 6
+                                  <input
+                                    inputMode="decimal"
+                                    value={valores.p2}
+                                    onChange={(event) => setNotas((atuais) => ({ ...atuais, [aluno.usuario_id]: { ...valores, p2: event.target.value } }))}
+                                    className="mt-1 w-full rounded-[8px] border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                                  />
+                                </label>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="rounded-[8px] bg-slate-50 p-2"><span className="text-slate-400">CVA</span><p className="font-semibold">{boletim?.cva ?? "—"}</p></div>
+                                <div className="rounded-[8px] bg-slate-50 p-2"><span className="text-slate-400">Final</span><p className="font-semibold">{boletim?.final ?? "—"}</p></div>
+                                <div className="rounded-[8px] bg-slate-50 p-2"><span className="text-slate-400">Resultado</span><p className="font-semibold">{boletim?.resultado ?? "Em andamento"}</p></div>
+                              </div>
+                            </article>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={handleSalvarBoletim}
+                          disabled={salvandoBoletim}
+                          className="w-full rounded-[10px] bg-[#0e5d77] px-4 py-3 font-medium text-white disabled:opacity-60"
+                        >
+                          {salvandoBoletim ? "Salvando..." : "Salvar notas"}
+                        </button>
+                      </div>
+                    )
+                  ) : null}
                 </div>
               )}
             </>

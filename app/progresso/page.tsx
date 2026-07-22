@@ -8,6 +8,7 @@ import AppLoader from "@/components/AppLoader";
 import NotificationBell from "@/components/NotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 import { getTurmaDoAluno, listarConteudoDaTurmaParaAluno } from "@/lib/aluno-dashboard";
+import { listarBoletinsDoAluno, type BoletimAluno } from "@/lib/boletim";
 import { getMatriculasDoAluno } from "@/lib/matriculas";
 import { getServiceUnavailableMessage, RequestTimeoutError, withTimeout } from "@/lib/network";
 import { sincronizarPublicacoesAgendadas } from "@/lib/publicacoes";
@@ -32,6 +33,11 @@ function getPrimeiroNome(profile: UsuarioProfile | null) {
   return nome.split(/\s+/)[0] ?? nome;
 }
 
+function formatarNota(nota: number | null) {
+  if (nota === null) return "—";
+  return nota.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+}
+
 export default function ProgressoPage() {
   const { user, profile, profileError, loading } = useAuth();
   const router = useRouter();
@@ -40,6 +46,8 @@ export default function ProgressoPage() {
   const [mensagem, setMensagem] = useState("");
   const [totalAulas, setTotalAulas] = useState(0);
   const [aulasConcluidas, setAulasConcluidas] = useState(0);
+  const [boletins, setBoletins] = useState<BoletimAluno[]>([]);
+  const [periodoBoletimSelecionado, setPeriodoBoletimSelecionado] = useState("");
 
   const iniciaisAvatar = useMemo(() => getIniciais(profile), [profile]);
   const primeiroNome = useMemo(() => getPrimeiroNome(profile), [profile]);
@@ -48,6 +56,12 @@ export default function ProgressoPage() {
   const percentualFaltante = Math.max(100 - percentualAssistido, 0);
   const progressoCompleto = totalAulas > 0 && aulasConcluidas === totalAulas;
   const semProgresso = aulasConcluidas === 0;
+  const periodosBoletim = useMemo(
+    () => Array.from(new Set(boletins.map((boletim) => boletim.periodo))),
+    [boletins],
+  );
+  const periodoBoletimAtivo = periodoBoletimSelecionado || periodosBoletim[0] || "";
+  const boletinsDoPeriodo = boletins.filter((boletim) => boletim.periodo === periodoBoletimAtivo);
 
   const corPrincipal = progressoCompleto ? "#3B82F6" : semProgresso ? "#D1D5DB" : "#F59E0B";
   const corRestante = "#E5E7EB";
@@ -147,6 +161,8 @@ export default function ProgressoPage() {
 
         setTotalAulas(aulas.length);
         setAulasConcluidas(concluidas);
+        const { boletins: boletinsData, error: boletimError } = await withTimeout(listarBoletinsDoAluno(user.id));
+        if (!boletimError) setBoletins(boletinsData);
         setCheckingAccess(false);
       } catch (error) {
         setMensagem(
@@ -268,6 +284,111 @@ export default function ProgressoPage() {
             <span className="min-w-[40px] text-right text-lg font-semibold text-slate-900">{percentualFaltante}%</span>
           </div>
         </div>
+
+        <section className="space-y-5">
+          <div className="space-y-2">
+            <h2 className="text-[2rem] font-semibold leading-none text-[#0f5d78]">Boletim</h2>
+            <p className="text-sm leading-5 text-slate-500">Acompanhe suas notas e o resultado de cada modulo.</p>
+          </div>
+
+          {boletins.length === 0 ? (
+            <p className="rounded-[12px] bg-slate-50 px-4 py-5 text-sm text-slate-400">
+              Nenhum boletim disponivel ainda.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2" aria-label="Periodos do boletim">
+                {periodosBoletim.map((periodo) => {
+                  const ativo = periodo === periodoBoletimAtivo;
+                  return (
+                    <button
+                      key={periodo}
+                      type="button"
+                      onClick={() => setPeriodoBoletimSelecionado(periodo)}
+                      className={`min-h-11 rounded-full px-5 py-2 text-sm font-semibold transition ${
+                        ativo
+                          ? "bg-[#0f5d78] text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-500"
+                      }`}
+                      aria-pressed={ativo}
+                    >
+                      {periodo}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-5">
+                {boletinsDoPeriodo.map((boletim) => (
+                  <article
+                    key={boletim.id}
+                    className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,93,120,0.10)]"
+                  >
+                    <div className="bg-gradient-to-br from-[#0f5d78] to-[#167da0] px-5 py-5 text-white">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-white/70">Modulo</p>
+                          <h3 className="mt-1 text-xl font-semibold leading-6">
+                            {boletim.codigo_modulo || boletim.modulo}
+                          </h3>
+                          {boletim.codigo_modulo && boletim.modulo !== boletim.codigo_modulo ? (
+                            <p className="mt-1 text-sm text-white/80">{boletim.modulo}</p>
+                          ) : null}
+                        </div>
+                        <span className="shrink-0 rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold">
+                          {boletim.periodo}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between border-t border-white/20 pt-3 text-sm">
+                        <span className="text-white/70">Turma</span>
+                        <span className="font-semibold">{boletim.codigo_turma || boletim.turma}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 p-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { sigla: "P1", descricao: "Prova escrita", nota: boletim.p1, maximo: "11,0" },
+                          { sigla: "P2", descricao: "Prova pratica", nota: boletim.p2, maximo: "6,0" },
+                          { sigla: "CVA", descricao: "Videoaulas", nota: boletim.cva, maximo: "3,0" },
+                          { sigla: "Final", descricao: "Nota final", nota: boletim.final, maximo: "20,0" },
+                        ].map((item) => (
+                          <div key={item.sigla} className="min-h-[112px] rounded-[16px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-bold text-[#0f5d78]">{item.sigla}</span>
+                              <span className="text-xs text-slate-400">/{item.maximo}</span>
+                            </div>
+                            <p className="mt-3 text-2xl font-semibold leading-none text-slate-900">{formatarNota(item.nota)}</p>
+                            <p className="mt-2 text-xs leading-4 text-slate-500">{item.descricao}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        className={`flex flex-col gap-2 rounded-[16px] px-4 py-4 sm:flex-row sm:items-center sm:justify-between ${
+                          boletim.resultado === "Aprovado"
+                            ? "bg-emerald-50 text-emerald-800"
+                            : boletim.resultado === "Reprovado"
+                              ? "bg-red-50 text-red-800"
+                              : "bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] opacity-70">Resultado</p>
+                          <p className="mt-1 text-lg font-bold">{boletim.resultado}</p>
+                        </div>
+                        <p className="text-sm font-medium">
+                          {boletim.aulas_concluidas} de {boletim.total_aulas} videoaulas concluidas
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
 
         {progressoCompleto ? (
           <p className="text-center text-[1.05rem] font-semibold leading-8 text-slate-900">

@@ -166,6 +166,7 @@ export default function QuestoesDaAulaPage() {
           id: moduloComTurma.id,
           turma_id: moduloComTurma.turma_id,
           titulo: moduloComTurma.titulo,
+          codigo: moduloComTurma.codigo,
           ordem: moduloComTurma.ordem,
           created_at: moduloComTurma.created_at,
         });

@@ -64,6 +64,7 @@ export default function TurmaPage() {
   const [mostrarModalTurma, setMostrarModalTurma] = useState(false);
   const [modoModal, setModoModal] = useState<"criar" | "editar">("criar");
   const [nomeModulo, setNomeModulo] = useState("");
+  const [codigoModulo, setCodigoModulo] = useState("");
   const [nomeTurmaEdicao, setNomeTurmaEdicao] = useState("");
   const [moduloEmEdicao, setModuloEmEdicao] = useState<string | null>(null);
   const [salvandoModulo, setSalvandoModulo] = useState(false);
@@ -171,11 +172,16 @@ export default function TurmaPage() {
       return;
     }
 
+    if (!codigoModulo.trim()) {
+      setMensagem("Digite o codigo do modulo para continuar.");
+      return;
+    }
+
     setSalvandoModulo(true);
     setMensagem("");
 
     if (modoModal === "editar" && moduloEmEdicao) {
-      const { modulo, error } = await atualizarModulo(moduloEmEdicao, nomeModulo);
+      const { modulo, error } = await atualizarModulo(moduloEmEdicao, nomeModulo, codigoModulo);
 
       if (error || !modulo) {
         setMensagem("Nao foi possivel salvar o modulo agora. Tente novamente.");
@@ -184,16 +190,19 @@ export default function TurmaPage() {
       }
 
       setModulos((estadoAtual) =>
-        estadoAtual.map((item) => (item.id === modulo.id ? { ...item, titulo: modulo.titulo } : item)),
+        estadoAtual.map((item) =>
+          item.id === modulo.id ? { ...item, titulo: modulo.titulo, codigo: modulo.codigo } : item,
+        ),
       );
       setNomeModulo("");
+      setCodigoModulo("");
       setModuloEmEdicao(null);
       setMostrarModal(false);
       setSalvandoModulo(false);
       return;
     }
 
-    const { modulo, error } = await criarModulo(turmaId, nomeModulo);
+    const { modulo, error } = await criarModulo(turmaId, nomeModulo, codigoModulo);
 
     if (error || !modulo) {
       setMensagem("Nao foi possivel criar o modulo agora. Tente novamente.");
@@ -208,6 +217,7 @@ export default function TurmaPage() {
     }));
     setModuloExpandido(modulo.id);
     setNomeModulo("");
+    setCodigoModulo("");
     setMostrarModal(false);
     setSalvandoModulo(false);
   }
@@ -527,6 +537,7 @@ export default function TurmaPage() {
                     setModoModal("criar");
                     setModuloEmEdicao(null);
                     setNomeModulo("");
+                    setCodigoModulo("");
                     setMensagem("");
                     setMostrarModal(true);
                   }}
@@ -550,7 +561,10 @@ export default function TurmaPage() {
                       <article key={modulo.id} className="rounded-[3px] bg-[#e9e9e9] px-5 py-4">
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3">
-                            <h2 className="text-[1.05rem] font-semibold text-slate-900">{modulo.titulo}</h2>
+                            <div>
+                              <h2 className="text-[1.05rem] font-semibold text-slate-900">{modulo.titulo}</h2>
+                              <p className="text-xs text-slate-500">{modulo.codigo || "Sem codigo"}</p>
+                            </div>
 
                             <button
                               type="button"
@@ -558,6 +572,7 @@ export default function TurmaPage() {
                                 setModoModal("editar");
                                 setModuloEmEdicao(modulo.id);
                                 setNomeModulo(modulo.titulo);
+                                setCodigoModulo(modulo.codigo ?? "");
                                 setMensagem("");
                                 setMostrarModal(true);
                               }}
@@ -669,6 +684,7 @@ export default function TurmaPage() {
                   setModoModal("criar");
                   setModuloEmEdicao(null);
                   setNomeModulo("");
+                  setCodigoModulo("");
                   setMensagem("");
                   setMostrarModal(true);
                 }}
@@ -786,6 +802,13 @@ export default function TurmaPage() {
                   onChange={(event) => setNomeModulo(event.target.value)}
                   placeholder="Digite o nome do modulo"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-sky-700"
+                />
+
+                <input
+                  value={codigoModulo}
+                  onChange={(event) => setCodigoModulo(event.target.value.toUpperCase())}
+                  placeholder="Codigo do modulo (ex.: TI-M01)"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 uppercase outline-none transition focus:border-sky-700"
                 />
 
                 {mensagem && mostrarModal ? (

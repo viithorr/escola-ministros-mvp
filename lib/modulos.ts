@@ -5,6 +5,7 @@ export type ModuloTurma = {
   id: string;
   turma_id: string;
   titulo: string;
+  codigo: string | null;
   ordem: number | null;
   created_at: string;
 };
@@ -27,7 +28,7 @@ export type ModuloComAulas = ModuloTurma & {
 export async function getModuloById(moduloId: string) {
   const { data, error } = await supabase
     .from("modulos")
-    .select("id, turma_id, titulo, ordem, created_at")
+    .select("id, turma_id, titulo, codigo, ordem, created_at")
     .eq("id", moduloId)
     .maybeSingle<ModuloTurma>();
 
@@ -42,6 +43,7 @@ export async function getModuloComTurma(moduloId: string) {
       id,
       turma_id,
       titulo,
+      codigo,
       ordem,
       created_at,
       turmas (
@@ -63,7 +65,7 @@ export async function getModuloComTurma(moduloId: string) {
 export async function listarModulosDaTurma(turmaId: string) {
   const { data, error } = await supabase
     .from("modulos")
-    .select("id, turma_id, titulo, ordem, created_at")
+    .select("id, turma_id, titulo, codigo, ordem, created_at")
     .eq("turma_id", turmaId)
     .order("ordem", { ascending: true })
     .order("created_at", { ascending: true });
@@ -79,6 +81,7 @@ export async function listarModulosComAulasDaTurma(turmaId: string) {
       id,
       turma_id,
       titulo,
+      codigo,
       ordem,
       created_at,
       aulas (
@@ -117,7 +120,7 @@ export async function listarModulosComAulasDaTurma(turmaId: string) {
   return { modulos, error };
 }
 
-export async function criarModulo(turmaId: string, titulo: string) {
+export async function criarModulo(turmaId: string, titulo: string, codigo: string) {
   const { data: ultimoModulo, error: ordemError } = await supabase
     .from("modulos")
     .select("ordem")
@@ -137,22 +140,24 @@ export async function criarModulo(turmaId: string, titulo: string) {
     .insert({
       turma_id: turmaId,
       titulo: titulo.trim(),
+      codigo: codigo.trim().toUpperCase(),
       ordem: proximaOrdem,
     })
-    .select("id, turma_id, titulo, ordem, created_at")
+    .select("id, turma_id, titulo, codigo, ordem, created_at")
     .single<ModuloTurma>();
 
   return { modulo: data, error };
 }
 
-export async function atualizarModulo(moduloId: string, titulo: string) {
+export async function atualizarModulo(moduloId: string, titulo: string, codigo: string) {
   const { data, error } = await supabase
     .from("modulos")
     .update({
       titulo: titulo.trim(),
+      codigo: codigo.trim().toUpperCase(),
     })
     .eq("id", moduloId)
-    .select("id, turma_id, titulo, ordem, created_at")
+    .select("id, turma_id, titulo, codigo, ordem, created_at")
     .single<ModuloTurma>();
 
   return { modulo: data, error };
